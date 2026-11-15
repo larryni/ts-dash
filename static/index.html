@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Tailnet Dashboard</title>
+<title>tailnetDash</title>
 <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
 <script>try { var t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <style>
@@ -115,7 +115,7 @@
               background:var(--card); color:var(--text); border-radius:8px; cursor:pointer; padding:0; font:inherit; }
   .icon-btn:hover, .icon-btn[aria-expanded="true"] { border-color:var(--accent); color:var(--accent); }
   .pop { position:absolute; right:0; top:calc(100% + 8px); z-index:20; padding:8px 12px; background:var(--card);
-         border:1px solid var(--line); border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,.3); }
+         border:1px solid var(--line); border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,.3); max-width:calc(100vw - 16px); }
   .pop[hidden], #zoomctl[hidden], #colctl[hidden], #expctl[hidden], #purgectl[hidden] { display:none; }
   #zoomctl { display:flex; gap:8px; align-items:center; }
   #zoomctl button { border:0; background:none; color:var(--text); cursor:pointer; font:inherit; font-size:16px;
@@ -169,18 +169,23 @@
   .btn.danger { border-color:var(--danger); color:var(--danger); }
   .btn.danger:hover { background:var(--danger); color:#fff; }
   .btn:disabled { opacity:.45; cursor:default; }
-  /* API key dialog */
-  #keydlg { width:min(460px, calc(100% - 32px)); padding:18px 20px; border:1px solid var(--line); border-radius:12px;
+  /* dialogs (API key, password) */
+  dialog.dlg { width:min(460px, calc(100% - 32px)); padding:18px 20px; border:1px solid var(--line); border-radius:12px;
             background:var(--card); color:var(--text); box-shadow:0 10px 40px rgba(0,0,0,.4); }
-  #keydlg::backdrop { background:rgba(0,0,0,.5); }
-  #keydlg h2 { font-size:16px; margin:0 0 8px; }
-  #keydlg p { margin:0 0 10px; }
-  #keydlg ol { margin:0 0 12px; padding-left:20px; }
-  #keydlg a { color:var(--accent); }
-  #keydlg input { width:100%; font-family:ui-monospace, monospace; }
-  #keydlg .kerr { color:var(--danger); margin-top:8px; }
-  #keydlg .krow { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
-  #keydlg .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  dialog.dlg::backdrop { background:rgba(0,0,0,.5); }
+  dialog.dlg h2 { font-size:16px; margin:0 0 8px; }
+  dialog.dlg p { margin:0 0 10px; }
+  dialog.dlg ol { margin:0 0 12px; padding-left:20px; }
+  dialog.dlg a { color:var(--accent); }
+  dialog.dlg input { width:100%; font-family:ui-monospace, monospace; }
+  dialog.dlg .kerr { color:var(--danger); margin-top:8px; }
+  dialog.dlg .krow { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  dialog.dlg .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #pwdlg input { font-family:inherit; }
+  #pwdlg label { display:block; font-size:13px; font-weight:600; margin:10px 0 4px; }
+  #acctctl { min-width:200px; }
+  #acctctl .who { padding:2px 0 8px; border-bottom:1px solid var(--line); margin-bottom:8px; overflow-wrap:anywhere; }
+  #acctctl .btn { display:block; width:100%; text-align:left; margin-top:6px; }
   #kbtn.warn { color:var(--warn); border-color:var(--warn); }
   #toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:40; padding:9px 16px; border-radius:10px;
            background:var(--card); color:var(--text); border:1px solid var(--accent); box-shadow:0 6px 20px rgba(0,0,0,.3); }
@@ -189,7 +194,7 @@
 <body>
 <div id="app">
 <header>
-  <h1><img src="/static/icon.svg" alt="">Tailnet Dashboard</h1>
+  <h1><img src="/static/icon.svg" alt="">tailnetDash</h1>
   <span class="meta" id="status"></span>
   <button class="icon-btn" id="kbtn" title="Tailscale API key" aria-label="Tailscale API key">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L20 3M16 7l3 3M14 9l2 2"/></svg>
@@ -216,6 +221,16 @@
       <input id="z" type="range" min="50" max="150" step="5" value="100" aria-label="Page zoom">
       <button id="z-in" aria-label="Zoom in">+</button>
       <button id="z-val" class="zv" title="Reset to 100% (shortcut: 0)">100%</button>
+    </div>
+  </div>
+  <div class="zwrap" id="awrap">
+    <button class="icon-btn" id="abtn" title="Account" aria-label="Account" aria-expanded="false">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+    </button>
+    <div class="pop" id="acctctl" hidden>
+      <div class="who sub">Signed in as <b id="acct-name"></b></div>
+      <button class="btn" id="pw-open">Change password…</button>
+      <button class="btn" id="logout">Sign out</button>
     </div>
   </div>
 </header>
@@ -265,7 +280,26 @@
 </div>
 <aside id="drawer"></aside>
 <div id="toast" role="status" hidden></div>
-<dialog id="keydlg" aria-labelledby="k-title">
+<dialog id="pwdlg" class="dlg" aria-labelledby="pw-title">
+  <form id="pw-form" method="dialog" novalidate>
+    <h2 id="pw-title">Change password</h2>
+    <input type="text" id="pw-user" autocomplete="username" hidden>
+    <label for="pw-cur">Current password</label>
+    <input id="pw-cur" type="password" autocomplete="current-password">
+    <label for="pw-new">New password</label>
+    <input id="pw-new" type="password" autocomplete="new-password">
+    <div class="sub" style="margin-top:4px">At least 8 characters.</div>
+    <label for="pw-new2">Repeat new password</label>
+    <input id="pw-new2" type="password" autocomplete="new-password">
+    <div class="kerr" id="pw-err" role="alert" hidden></div>
+    <div class="sub" style="margin-top:8px">Any other browsers signed in to the dashboard will be signed out. This one stays signed in.</div>
+    <div class="krow">
+      <button type="button" class="btn" id="pw-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="pw-save">Change password</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="keydlg" class="dlg" aria-labelledby="k-title">
   <form id="k-form" method="dialog">
     <h2 id="k-title">Tailscale API key</h2>
     <p id="k-why"></p>
@@ -296,8 +330,16 @@ try {
 } catch (e) {}
 const isMobile = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 700px)").matches;
 layout = savedLayout === "table" || savedLayout === "cards" ? savedLayout : (isMobile ? "cards" : "table");
+// When the login has ended (expired, signed out elsewhere, server reset), any API call answers
+// 401: go to the login page instead of showing a broken dashboard.
+const _fetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const r = await _fetch(...args);
+  if (r.status === 401 && String(args[0]).startsWith("/api/")) location.replace("/login");
+  return r;
+};
 const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc =s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const DAY = 86400000;
 
 function ago(iso) {
@@ -553,6 +595,7 @@ async function saveNote(d) {
     const j = await r.json();
     d.note = j.note;
     st.textContent = j.note ? "Saved" : "Note removed";
+    if ($("dr-note-del")) $("dr-note-del").disabled = !j.note;
     render(); load();
   } catch (e) { st.textContent = "Couldn't save"; }
 }
@@ -857,7 +900,7 @@ function render() {
       Uptime: ${esc(upText(d))}</p>
       <h3 style="margin:14px 0 6px;font-size:14px">Notes</h3>
       <textarea id="dr-note" maxlength="5000" placeholder="Where it lives, what it runs, who looks after it…">${esc(d.note || "")}</textarea>
-      <div class="noterow"><button class="btn" id="dr-note-save">Save note</button><span class="sub" id="dr-note-st"></span></div>
+      <div class="noterow"><button class="btn" id="dr-note-save">Save note</button><button class="btn danger" id="dr-note-del"${d.note ? "" : " disabled"}>Delete note</button><span class="sub" id="dr-note-st"></span></div>
       <h3 style="margin:14px 0 6px;font-size:14px">Latency</h3>
       <div class="rng" id="dr-rng"><button data-days="1">24 h</button><button data-days="7" class="on">7 d</button><button data-days="30">30 d</button></div>
       <div id="dr-lat" class="sub">Loading…</div>
@@ -868,6 +911,11 @@ function render() {
     $("drawer").classList.add("open");
     $("drawer").dataset.dev = d.id;
     $("dr-note-save").onclick = () => saveNote(d);
+    $("dr-note-del").onclick = () => {
+      if (!confirm(`Delete the note for ${d.hostname || d.name}? This can't be undone.`)) return;
+      $("dr-note").value = "";
+      saveNote(d);  // saving an empty note removes it
+    };
     $("dr-note").onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveNote(d); } };
     $("dr-rng").onclick = e => {
       const b = e.target.closest("button[data-days]");
@@ -955,7 +1003,7 @@ $("z-out").onclick = () => setZoom(zoom - 5);
 $("z-val").onclick = () => setZoom(100);
 
 /* ---------- popovers (zoom, columns) ---------- */
-const POPS = [["zoomctl", "zbtn", "zwrap"], ["colctl", "cbtn", "cwrap"], ["expctl", "ebtn", "ewrap"], ["purgectl", "purgebtn", "pwrap"]];
+const POPS = [["zoomctl", "zbtn", "zwrap"], ["colctl", "cbtn", "cwrap"], ["expctl", "ebtn", "ewrap"], ["purgectl", "purgebtn", "pwrap"], ["acctctl", "abtn", "awrap"]];
 function closePops(except) {
   POPS.forEach(([p, b]) => { if (p !== except) { $(p).hidden = true; $(b).setAttribute("aria-expanded", "false"); } });
 }
@@ -964,6 +1012,15 @@ function togglePop(p, b) {
   closePops(show ? p : null);
   $(p).hidden = !show;
   $(b).setAttribute("aria-expanded", show ? "true" : "false");
+  if (show) {
+    // menus hang left from their button; on a narrow screen that can run off an edge, so
+    // slide the menu sideways just enough to keep it on screen
+    const el = $(p);
+    el.style.right = "";
+    const r = el.getBoundingClientRect();
+    const shift = r.left < 8 ? 8 - r.left : r.right > innerWidth - 8 ? innerWidth - 8 - r.right : 0;
+    if (shift) el.style.right = `${-shift}px`;
+  }
 }
 $("zbtn").onclick = () => togglePop("zoomctl", "zbtn");
 $("cbtn").onclick = () => togglePop("colctl", "cbtn");
@@ -1074,6 +1131,48 @@ $("k-form").onsubmit = async e => {
   } finally {
     $("k-save").disabled = false;
     $("k-save").textContent = "Check and save";
+  }
+};
+
+/* ---------- account: sign out, change password ---------- */
+fetch("/api/auth/state").then(r => r.json()).then(s => {
+  $("acct-name").textContent = s.username || "";
+  $("pw-user").value = s.username || "";  // lets password managers match the saved login
+}).catch(() => {});
+$("abtn").onclick = () => togglePop("acctctl", "abtn");
+$("logout").onclick = async () => {
+  try { await fetch("/api/auth/logout", {method: "POST"}); } catch (e) {}
+  location.replace("/login");
+};
+$("pw-open").onclick = () => {
+  closePops(null);
+  ["pw-cur", "pw-new", "pw-new2"].forEach(id => $(id).value = "");
+  $("pw-err").hidden = true;
+  $("pwdlg").showModal();
+  $("pw-cur").focus();
+};
+$("pw-cancel").onclick = () => $("pwdlg").close();
+$("pwdlg").onclose = () => ["pw-cur", "pw-new", "pw-new2"].forEach(id => $(id).value = "");
+["pw-cur", "pw-new", "pw-new2"].forEach(id => $(id).addEventListener("input", () => { $("pw-err").hidden = true; }));
+$("pw-form").onsubmit = async e => {
+  e.preventDefault();
+  const err = $("pw-err"), fail = m => { err.textContent = m; err.hidden = false; };
+  const current = $("pw-cur").value, nw = $("pw-new").value;
+  if (!current) return fail("Enter your current password.");
+  if (nw.length < 8) return fail("The new password needs at least 8 characters.");
+  if (nw !== $("pw-new2").value) return fail("The two new passwords don't match.");
+  $("pw-save").disabled = true;
+  try {
+    const r = await fetch("/api/auth/password", {method: "POST", headers: {"Content-Type": "application/json"},
+                                                 body: JSON.stringify({current, new: nw})});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Server error ${r.status}`);
+    $("pwdlg").close();
+    toast("Password changed");
+  } catch (ex) {
+    fail(ex.message === "Failed to fetch" ? "Dashboard backend unreachable." : ex.message);
+  } finally {
+    $("pw-save").disabled = false;
   }
 };
 

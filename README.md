@@ -1,4 +1,4 @@
-# <img src="static/icon.svg" width="36" height="36" alt="" align="top"> Tailnet Dashboard
+# <img src="static/icon.svg" width="36" height="36" alt="" align="top"> tailnetDash
 
 > **Note:** This project is 100% vibe coded with [Claude](https://claude.com/claude-code).
 
@@ -12,6 +12,7 @@ appear and removed ones are archived automatically.
 - Types (Server, Laptop…), notes, ping and relay latency, per-device latency history
 - Table or card layout, grouping, sortable and configurable columns, light/dark theme, page zoom
 - CSV / JSON export and purging of old archived devices
+- Login with a username and password you choose on first run, with "remember me"
 
 Stack: Python, Flask, SQLite and one static HTML page. No build step.
 
@@ -89,13 +90,41 @@ The dashboard only reads data. It never changes your tailnet.
 python app.py
 ```
 
-Open `http://<this-machine>:8080/` — for example `http://moya:8080/` using the MagicDNS name. Paste
-your API access token when asked. The first sync takes a few seconds.
+Open `http://<this-machine>:8080/` — for example `http://moya:8080/` using the MagicDNS name.
+
+1. **Choose a username and password.** On the very first visit the dashboard asks you to create its
+   login (password at least 8 characters). Do this straight after starting it: until a login
+   exists, whoever opens the page first gets to choose it.
+2. **Paste your API access token** when asked. The first sync takes a few seconds.
+
+### Logging in
+
+- Without **Remember me**, you stay signed in until you close the browser or leave the dashboard
+  unused for 12 hours.
+- With **Remember me**, the browser stays signed in for 30 days, counted from the last time you used
+  it. Leave it off on a shared computer.
+- The account menu (the person icon at the right of the header) shows who is signed in and has
+  **Change password…** and **Sign out**. Changing the password needs the current one and signs out
+  every other browser; the one you are using stays signed in.
+- After 5 wrong passwords from one address, each further try has to wait (30 seconds, then longer).
+
+Passwords are stored as a salted scrypt hash, never in plain text. The browser's login cookie is a
+random token, and the database keeps only a hash of it.
+
+**Forgot the password?** Stop the dashboard and run, from its folder:
+
+```sh
+python app.py --reset-login
+```
+
+This removes the login and signs every browser out (your devices, history and API key are kept).
+Start the dashboard again and the next visit asks you to create a new login.
 
 ### Security: who can reach it?
 
-The dashboard has **no login**, and by default it listens on all network interfaces
-(`HOST=0.0.0.0`). Anyone who can reach the port can see your device list. Restrict it to
+The login keeps casual visitors out, but by default the dashboard listens on all network interfaces
+(`HOST=0.0.0.0`) and uses plain HTTP, so the password crosses the network unencrypted unless the
+connection itself is encrypted. Over Tailscale it is (WireGuard), so restrict the dashboard to
 Tailscale only:
 
 ```sh
@@ -104,8 +133,7 @@ export HOST=$(tailscale ip -4)      # bind to this machine's tailnet address onl
 
 or use `HOST=127.0.0.1` if you put something like `tailscale serve` in front of it.
 
-The same goes for the API key: anyone who can reach the page can replace the saved key (they can
-never read it back). Another reason to keep the dashboard reachable only by you.
+With `tailscale serve` you also get HTTPS, and the login cookie is then marked Secure automatically.
 
 ## Configuration
 
@@ -146,7 +174,7 @@ Create `~/.config/systemd/user/ts-dash.service`. Adjust the path if you installe
 
 ```ini
 [Unit]
-Description=Tailnet Dashboard
+Description=tailnetDash
 After=network-online.target
 
 [Service]
@@ -192,6 +220,8 @@ will fail and retry every 10 seconds until the address exists. That is expected.
 Everything the dashboard stores (archive, types, notes, timeline, latency) is in one file, the
 `DB_PATH` SQLite file. Stop the service and copy it, or use `sqlite3 dashboard.db ".backup copy.db"`.
 The API key is kept apart, in the `api_key` file, so backups of the database don't contain it.
+The database does hold the login (as a password hash), so restoring a backup also restores the
+password that was set at the time.
 
 ## Troubleshooting
 
@@ -203,6 +233,9 @@ The API key is kept apart, in the `api_key` file, so backups of the database don
 | 404 on `/` | `index.html` must be inside the `static/` folder next to `app.py`. |
 | "API key rejected" in the header | Token is wrong, revoked or expired (90-day limit). Generate a new one and enter it with the key button. |
 | "The key works, but it couldn't be saved" | The app can't write next to the database. Check the folder's permissions, or set `KEY_PATH`. |
+| Forgot the dashboard password | Stop the dashboard, run `python app.py --reset-login`, start it again and create a new login. |
+| "Too many wrong attempts" | Wait the number of seconds shown, or restart the dashboard to clear the counter. |
+| Asked to create a login after updating | Expected once: versions with a login ask you to set one up on the first visit. |
 | Everything shows SSH/HTTPS closed or no ping | The host isn't on the tailnet, or a firewall blocks it. Check `tailscale status` on that machine. |
 | Page works but a new button gives a 404 | The old server process is still running. Restart it (see Updating). |
 | Page looks wrong colours | Some browser extensions (dark-mode or colour changers) restyle pages. Try a private window. |

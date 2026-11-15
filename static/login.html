@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Sign in · tailnetDash</title>
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<script>try { var t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<style>
+  :root { color-scheme: light; --bg:#c4c9d2; --card:#d8dce3; --text:#1f242c; --muted:#4a5464; --line:#b3bac6;
+          --danger:#991b1b; --accent:#1e40af; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { color-scheme: dark; --bg:#24262d; --card:#2d313a; --text:#e6e8ec; --muted:#a9b0bc;
+          --line:#454b59; --danger:#f87171; --accent:#7ab3f8; }
+  }
+  :root[data-theme="dark"] { color-scheme: dark; --bg:#24262d; --card:#2d313a; --text:#e6e8ec; --muted:#a9b0bc;
+          --line:#454b59; --danger:#f87171; --accent:#7ab3f8; }
+  * { box-sizing:border-box; }
+  html, body { background:var(--bg); }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:16px;
+         font:14px/1.45 system-ui, sans-serif; color:var(--text); }
+  main { width:min(380px, 100%); background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; display:flex; align-items:center; gap:10px; }
+  h1 img { width:32px; height:32px; }
+  p.lead { color:var(--muted); margin:0 0 18px; }
+  label { display:block; font-weight:600; font-size:13px; margin:12px 0 4px; }
+  input[type=text], input[type=password] { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px;
+         background:var(--bg); color:var(--text); font:inherit; }
+  input:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .check { display:flex; gap:8px; align-items:center; font-weight:400; margin-top:14px; }
+  .check input { accent-color:var(--accent); width:16px; height:16px; margin:0; }
+  .hint { color:var(--muted); font-size:12px; margin-top:4px; }
+  .err { color:var(--danger); margin-top:12px; }
+  button { width:100%; margin-top:18px; padding:10px; border:1px solid var(--accent); border-radius:8px;
+           background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  :root[data-theme="dark"] button { color:#0b1220; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button { color:#0b1220; } }
+  button:disabled { opacity:.6; cursor:default; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1><img src="/static/icon.svg" alt="">tailnetDash</h1>
+  <p class="lead" id="lead">Loading…</p>
+  <form id="f" hidden novalidate>
+    <label for="u">Username</label>
+    <input id="u" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required>
+    <label for="p">Password</label>
+    <input id="p" type="password" autocomplete="current-password" required>
+    <div class="hint" id="p-hint" hidden>At least 8 characters.</div>
+    <div id="confirm-wrap" hidden>
+      <label for="p2">Repeat password</label>
+      <input id="p2" type="password" autocomplete="new-password">
+    </div>
+    <label class="check"><input id="r" type="checkbox"> Remember me</label>
+    <div class="hint">Stay signed in on this browser for 30 days. Leave it off on a shared computer.</div>
+    <div class="err" id="err" role="alert" hidden></div>
+    <button id="go" type="submit">Sign in</button>
+  </form>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let setup = false;
+
+function showError(msg) { $("err").textContent = msg; $("err").hidden = !msg; }
+
+async function init() {
+  try {
+    const s = await fetch("/api/auth/state").then(r => r.json());
+    if (s.logged_in && !s.setup_needed) { location.replace("/"); return; }
+    setup = s.setup_needed;
+  } catch (e) {
+    $("lead").textContent = "Can't reach the dashboard server.";
+    return;
+  }
+  if (setup) {
+    document.title = "Set up · tailnetDash";
+    $("lead").textContent = "First run: choose the username and password you'll use to sign in to this dashboard.";
+    $("p").autocomplete = "new-password";
+    $("p-hint").hidden = false;
+    $("confirm-wrap").hidden = false;
+    $("go").textContent = "Create login";
+  } else {
+    document.title = "Sign in · tailnetDash";
+    $("lead").textContent = "Sign in to see your tailnet.";
+    $("p").autocomplete = "current-password";
+    $("p-hint").hidden = true;
+    $("confirm-wrap").hidden = true;
+    $("go").textContent = "Sign in";
+  }
+  $("f").hidden = false;
+  $("u").focus();
+}
+
+$("f").onsubmit = async e => {
+  e.preventDefault();
+  showError("");
+  const username = $("u").value.trim(), password = $("p").value;
+  if (!username || !password) { showError("Enter a username and password."); return; }
+  if (setup) {
+    if (password.length < 8) { showError("The password needs at least 8 characters."); return; }
+    if (password !== $("p2").value) { showError("The two passwords don't match."); return; }
+  }
+  $("go").disabled = true;
+  try {
+    const r = await fetch(setup ? "/api/auth/setup" : "/api/auth/login", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({username, password, remember: $("r").checked})});
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { location.replace("/"); return; }
+    if (r.status === 409) { setup = false; init(); }  // someone else finished setup first
+    showError(j.error || `Something went wrong (${r.status}).`);
+    $("p").value = ""; $("p2").value = "";
+    $("p").focus();
+  } catch (ex) {
+    showError("Can't reach the dashboard server.");
+  } finally {
+    $("go").disabled = false;
+  }
+};
+["u", "p", "p2"].forEach(id => $(id).addEventListener("input", () => showError("")));
+init();
+</script>
+</body>
+</html>

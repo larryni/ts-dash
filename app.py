@@ -1,11 +1,14 @@
 """Tailscale dashboard: polls the Tailscale API, tracks devices in SQLite,
 archives devices that disappear, and serves a small web UI."""
 import csv
+import hashlib
 import io
 import json
 import os
+import secrets
 import socket
 import sqlite3
+import sys
 import threading
 import time
 from collections import Counter
@@ -13,7 +16,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import requests
-from flask import Flask, Response, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, g, jsonify, redirect, request, send_from_directory
+from werkzeug.security import check_password_hash, generate_password_hash
 
 TAILNET = os.environ.get("TS_TAILNET", "-")   # "-" = your default tailnet
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "60"))
@@ -85,6 +89,13 @@ def init_db():
     with db() as c:
         c.executescript(
             """
+            -- the dashboard's single login, set on first run
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY, pw_hash TEXT NOT NULL, created_at TEXT);
+            -- logged-in browsers; only a hash of each cookie token is kept
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY, created_at TEXT, last_used REAL,
+                expires REAL, remember INTEGER);
             CREATE TABLE IF NOT EXISTS devices (
                 id TEXT PRIMARY KEY, name TEXT, data TEXT,
                 first_seen TEXT, updated_at TEXT,
@@ -390,6 +401,7 @@ def prune_events():
     with lock, db() as c:
         c.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
         c.execute("DELETE FROM latency WHERE ts < ?", (lat_cut,))
+        c.execute("DELETE FROM sessions WHERE expires < ?", (time.time(),))
         if ARCHIVE_RETENTION_DAYS > 0:
             purge_archive(c, ARCHIVE_RETENTION_DAYS)
 
@@ -922,12 +934,247 @@ def api_set_key():
     return jsonify(key_info())
 
 
+# ---------- login ----------
+# One username and password, chosen in the browser on first run. A login gives the browser a
+# random token in an HttpOnly cookie; the database keeps only its SHA-256, so a copy of the
+# database can't be used to log in. Sessions slide: each use pushes the expiry forward.
+SESSION_COOKIE = "tsdash_session"
+SESSION_IDLE = 12 * 3600            # without "remember me": ends after 12 h unused (and when the browser closes)
+SESSION_REMEMBER = 30 * 86400       # with "remember me": ends after 30 days unused
+SESSION_TOUCH = 300                 # write a new expiry at most every 5 minutes
+PASSWORD_MIN = 8
+USERNAME_MAX = 64
+# Paths reachable without logging in. Everything else, including /static/index.html, is not.
+PUBLIC_PATHS = {"/login", "/api/auth/state", "/api/auth/login", "/api/auth/setup", "/static/icon.svg"}
+# A dummy hash so a wrong username takes as long to check as a wrong password.
+_DUMMY_HASH = generate_password_hash("not-a-real-password")
+login_failures = {}   # ip -> (count, locked_until); in memory, cleared on restart
+fail_lock = threading.Lock()
+
+
+def token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def user_exists():
+    with db() as c:
+        return c.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+
+
+def current_session():
+    """The session row for this request's cookie, or None. Expired rows count as none."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token or len(token) > 200:
+        return None
+    with db() as c:
+        row = c.execute("SELECT * FROM sessions WHERE token_hash=?", (token_hash(token),)).fetchone()
+    if not row or row["expires"] < time.time():
+        return None
+    return row
+
+
+def set_session_cookie(resp, token, remember):
+    # Secure only when the page itself came over HTTPS (e.g. behind `tailscale serve`); over
+    # plain HTTP on the tailnet a Secure cookie would never be sent back.
+    resp.set_cookie(SESSION_COOKIE, token, max_age=SESSION_REMEMBER if remember else None,
+                    httponly=True, samesite="Lax", secure=request.is_secure, path="/")
+
+
+def start_session(resp, remember):
+    token = secrets.token_urlsafe(32)
+    t = time.time()
+    with lock, db() as c:
+        c.execute("INSERT INTO sessions (token_hash, created_at, last_used, expires, remember) VALUES (?,?,?,?,?)",
+                  (token_hash(token), now(), t, t + (SESSION_REMEMBER if remember else SESSION_IDLE), int(remember)))
+    set_session_cookie(resp, token, remember)
+
+
+def client_ip():
+    return request.remote_addr or "?"
+
+
+def check_lockout():
+    """Seconds this address must still wait after too many wrong passwords (0 = may try)."""
+    with fail_lock:
+        _, until = login_failures.get(client_ip(), (0, 0))
+    return max(0, int(until - time.time() + 0.999))
+
+
+def note_failure():
+    with fail_lock:
+        count, _ = login_failures.get(client_ip(), (0, 0))
+        count += 1
+        # 5 free tries, then a pause that doubles each time: 30 s, 60 s, 2 min … up to 15 min
+        wait = 0 if count < 5 else min(900, 30 * 2 ** (count - 5))
+        login_failures[client_ip()] = (count, time.time() + wait)
+
+
+@app.before_request
+def require_login():
+    if request.path in PUBLIC_PATHS:
+        return None
+    sess = current_session()
+    if sess is None:
+        if request.path.startswith("/api/"):
+            return jsonify(error="login required"), 401
+        return redirect("/login")
+    # slide the expiry forward, but don't write to the database on every request
+    if time.time() - sess["last_used"] > SESSION_TOUCH:
+        t = time.time()
+        span = SESSION_REMEMBER if sess["remember"] else SESSION_IDLE
+        with lock, db() as c:
+            c.execute("UPDATE sessions SET last_used=?, expires=? WHERE token_hash=?", (t, t + span, sess["token_hash"]))
+        if sess["remember"]:
+            g.refresh_cookie = True  # renew the cookie's own 30-day lifetime too
+    return None
+
+
+@app.after_request
+def security_headers(resp):
+    if getattr(g, "refresh_cookie", False):
+        set_session_cookie(resp, request.cookies.get(SESSION_COOKIE), True)
+    resp.headers.setdefault("X-Frame-Options", "DENY")  # no embedding the dashboard in other sites
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    return resp
+
+
+@app.get("/login")
+def login_page():
+    if current_session() is not None and user_exists():
+        return redirect("/")
+    resp = send_from_directory("static", "login.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def the_user():
+    with db() as c:
+        return c.execute("SELECT username, pw_hash FROM users LIMIT 1").fetchone()
+
+
+@app.get("/api/auth/state")
+def api_auth_state():
+    logged_in = current_session() is not None
+    user = the_user() if logged_in else None
+    return jsonify(setup_needed=not user_exists(), logged_in=logged_in,
+                   username=user["username"] if user else None)
+
+
+@app.post("/api/auth/password")
+def api_auth_password():
+    """Change the password. Needs the current one, so a browser left signed in can't be used
+    to lock the owner out. Every other signed-in browser is signed out; this one stays in."""
+    wait = check_lockout()
+    if wait:
+        return jsonify(error=f"Too many wrong attempts. Try again in {wait} seconds."), 429
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(error="Bad request."), 400
+    current, new = body.get("current"), body.get("new")
+    if not isinstance(current, str) or not isinstance(new, str) or not current:
+        return jsonify(error="Enter your current password and a new one."), 400
+    if len(new) < PASSWORD_MIN:
+        return jsonify(error=f"The new password needs at least {PASSWORD_MIN} characters."), 400
+    if len(new) > 1024:
+        return jsonify(error="That password is too long."), 400
+    user = the_user()
+    if not user or not check_password_hash(user["pw_hash"], current):
+        note_failure()
+        return jsonify(error="The current password is wrong."), 403
+    with fail_lock:
+        login_failures.pop(client_ip(), None)
+    if check_password_hash(user["pw_hash"], new):
+        return jsonify(error="The new password is the same as the current one."), 400
+    keep = token_hash(request.cookies.get(SESSION_COOKIE, ""))
+    with lock, db() as c:
+        c.execute("UPDATE users SET pw_hash=? WHERE username=?", (generate_password_hash(new), user["username"]))
+        c.execute("DELETE FROM sessions WHERE token_hash != ?", (keep,))
+    return jsonify(ok=True)
+
+
+def read_credentials():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return None, None, None
+    u, p = body.get("username"), body.get("password")
+    if not isinstance(u, str) or not isinstance(p, str):
+        return None, None, None
+    return u.strip(), p, bool(body.get("remember"))
+
+
+@app.post("/api/auth/setup")
+def api_auth_setup():
+    username, password, remember = read_credentials()
+    if not username or len(username) > USERNAME_MAX:
+        return jsonify(error=f"Choose a username (up to {USERNAME_MAX} characters)."), 400
+    if len(password or "") < PASSWORD_MIN:
+        return jsonify(error=f"The password needs at least {PASSWORD_MIN} characters."), 400
+    if len(password) > 1024:
+        return jsonify(error="That password is too long."), 400
+    with lock, db() as c:
+        # checked inside the lock so two first-run requests can't both create a login
+        if c.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+            return jsonify(error="A login has already been set up. Sign in instead."), 409
+        c.execute("INSERT INTO users (username, pw_hash, created_at) VALUES (?,?,?)",
+                  (username, generate_password_hash(password), now()))
+    resp = jsonify(ok=True)
+    start_session(resp, remember)
+    return resp
+
+
+@app.post("/api/auth/login")
+def api_auth_login():
+    wait = check_lockout()
+    if wait:
+        return jsonify(error=f"Too many wrong attempts. Try again in {wait} seconds."), 429
+    username, password, remember = read_credentials()
+    if username is None:
+        return jsonify(error="Enter your username and password."), 400
+    with db() as c:
+        row = c.execute("SELECT pw_hash FROM users WHERE username=?", (username,)).fetchone()
+    ok = check_password_hash(row["pw_hash"] if row else _DUMMY_HASH, password) and row is not None
+    if not ok:
+        note_failure()
+        return jsonify(error="Wrong username or password."), 401
+    with fail_lock:
+        login_failures.pop(client_ip(), None)
+    resp = jsonify(ok=True)
+    start_session(resp, remember)
+    return resp
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout():
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        with lock, db() as c:
+            c.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash(token),))
+    resp = jsonify(ok=True)
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
+
+
+def reset_login():
+    """Command line: forget the login (and log everyone out) so the next visit sets a new one."""
+    init_db()
+    with db() as c:
+        c.execute("DELETE FROM users")
+        c.execute("DELETE FROM sessions")
+    print("Login removed. Open the dashboard to choose a new username and password.")
+
+
 @app.get("/")
 def index():
-    return send_from_directory("static", "index.html")
+    resp = send_from_directory("static", "index.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 if __name__ == "__main__":
+    if "--reset-login" in sys.argv[1:]:
+        reset_login()
+        sys.exit(0)
     init_db()
     threading.Thread(target=poll_loop, daemon=True).start()
     app.run(host=os.environ.get("HOST", "0.0.0.0"), port=int(os.environ.get("PORT", "8080")))
