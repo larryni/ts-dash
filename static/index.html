@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Tailnet Dashboard</title>
+<script>try { var t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<style>
+  :root { color-scheme: light; --bg:#c4c9d2; --card:#d8dce3; --soft:#e6e9ee; --text:#1f242c; --muted:#4a5464; --line:#b3bac6;
+          --ok:#166534; --bad:#7d8696; --warn:#92400e; --danger:#991b1b; --accent:#1e40af; --exit:#5b21b6; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { color-scheme: dark; --bg:#24262d; --card:#2d313a; --soft:#373c47; --text:#e6e8ec; --muted:#a9b0bc; --line:#454b59;
+          --ok:#4ade80; --bad:#6b7280; --warn:#fbbf24; --danger:#f87171; --accent:#7ab3f8; --exit:#b39dfa; }
+  }
+  :root[data-theme="dark"] { color-scheme: dark; --bg:#24262d; --card:#2d313a; --soft:#373c47; --text:#e6e8ec; --muted:#a9b0bc; --line:#454b59;
+          --ok:#4ade80; --bad:#6b7280; --warn:#fbbf24; --danger:#f87171; --accent:#7ab3f8; --exit:#b39dfa; }
+  html { background:var(--bg); }
+  /* the page colour lives on a wrapper so a browser/extension can't repaint it behind the cards */
+  #app { background:var(--bg); color:var(--text); min-height:100vh; }
+  body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+                 background-color:var(--bg); background-image:linear-gradient(var(--bg), var(--bg)); }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:14px 20px; padding:10px 16px;
+           background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  h1 { font-size:18px; margin:0; flex:1; color:var(--text); }
+  .meta { color:var(--muted); font-size:12px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; padding:0 20px 12px; align-items:center; }
+  input, select { padding:7px 10px; border:1px solid var(--line); border-radius:8px;
+                  background:var(--card); color:var(--text); font:inherit; }
+  input[type=checkbox] { padding:0; width:auto; accent-color:var(--accent); }
+  .seg { display:inline-flex; }
+  .seg button { padding:7px 14px; border:1px solid var(--line); background:var(--card);
+                color:var(--text); cursor:pointer; font:inherit; }
+  .seg button:first-child { border-radius:8px 0 0 8px; }
+  .seg button:last-child { border-radius:0 8px 8px 0; border-left:0; }
+  .seg button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .spacer { flex:1; }
+
+  /* summary strip */
+  .summary { display:flex; flex-wrap:wrap; gap:10px; padding:0 20px 14px; }
+  .tile { flex:1 1 118px; text-align:left; background:var(--card); color:var(--text); border:1px solid var(--line);
+          border-radius:12px; padding:10px 14px; cursor:pointer; font:inherit; }
+  .tile:hover { border-color:var(--accent); }
+  .tile.on { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+  .tile b { display:block; font-size:22px; line-height:1.15; }
+  .tile span { font-size:12px; color:var(--muted); }
+  .tile.ok b { color:var(--ok); } .tile.exit b { color:var(--exit); } .tile.subnet b { color:var(--accent); }
+  .tile.warn.nz b { color:var(--warn); } .tile.danger.nz b { color:var(--danger); }
+
+  .wrap { margin:0 20px 24px; background:var(--card); border:1px solid var(--line);
+          border-radius:12px; overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; min-width:560px; }
+  th, td { text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { font-size:12px; color:var(--muted); font-weight:600; }
+  th.sortable { cursor:pointer; user-select:none; }
+  th.sortable:hover { color:var(--text); }
+  th .arr { color:var(--accent); }
+  tr:last-child td { border-bottom:0; }
+  tbody tr { cursor:pointer; } tbody tr:hover { background:rgba(127,127,127,.08); }
+  .grid { margin:0 20px 24px; display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px;
+          cursor:pointer; display:flex; flex-direction:column; gap:0; }
+  .card:hover { border-color:var(--accent); }
+  .card .top { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:start; }
+  .card .title { min-width:0; }
+  .card .title b, .card .title .sub { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card .fq { display:flex; align-items:center; gap:4px; min-width:0; }
+  .card .fq .sub { min-width:0; }
+  .card .state { white-space:nowrap; }
+  .card .badges { display:flex; flex-wrap:wrap; gap:6px; align-items:center; align-content:center; min-height:34px; }
+  .card .row { display:flex; justify-content:space-between; align-items:center; gap:10px;
+               min-height:32px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); }
+  .card .row .val { color:var(--text); font-weight:500; text-align:right; white-space:nowrap; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; background:var(--bad); }
+  .dot.on { background:var(--ok); }
+  .pill { padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); color:var(--muted); }
+  .pill.yes { color:var(--ok); border-color:var(--ok); }
+  .pill.exit { color:var(--exit); border-color:var(--exit); }
+  .pill.subnet { color:var(--accent); border-color:var(--accent); }
+  .pill.pending { color:var(--warn); border-color:var(--warn); }
+  .pill.danger { color:var(--danger); border-color:var(--danger); }
+  .neg { color:var(--danger); }
+  .sub { color:var(--muted); font-size:12px; }
+  a.open { padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--accent);
+           color:var(--accent); text-decoration:none; white-space:nowrap; }
+  a.open:hover { background:var(--accent); color:#fff; }
+  button.copy { border:0; background:none; color:var(--muted); cursor:pointer; padding:2px 4px; border-radius:4px;
+                vertical-align:middle; line-height:0; font:inherit; font-size:12px; }
+  button.copy:hover { color:var(--accent); background:rgba(127,127,127,.15); }
+  select.cat { padding:3px 6px; font-size:13px; }
+  #drawer { z-index:10; position:fixed; top:0; right:0; width:min(480px,100%); height:100%; background:var(--card);
+            border-left:1px solid var(--line); transform:translateX(100%); transition:transform .2s;
+            padding:20px; overflow:auto; }
+  #drawer.open { transform:none; }
+  pre { background:var(--soft); color:var(--text); padding:12px; border-radius:8px; overflow:auto; font-size:12px; }
+  .err { color:var(--warn); }
+  button.link { background:none; border:0; color:var(--accent); cursor:pointer; padding:0; font:inherit; }
+  .panel { margin:0 20px 14px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .panel summary { padding:11px 16px; cursor:pointer; display:flex; flex-wrap:wrap; gap:10px; align-items:center; font-weight:600; }
+  .dns-grid { display:grid; gap:0; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); border-top:1px solid var(--line); }
+  .dbox { padding:12px 16px; border-right:1px solid var(--line); min-width:0; }
+  .dbox:last-child { border-right:0; }
+  .dl { font-size:12px; color:var(--muted); font-weight:600; margin-bottom:6px; }
+  .chip { display:inline-block; margin:0 6px 6px 0; padding:2px 8px; border-radius:6px; background:var(--soft); color:var(--text);
+          border:1px solid var(--line); font:12px ui-monospace, monospace; word-break:break-all; }
+  .split { margin-bottom:6px; font-size:12px; } .split .chip { margin-bottom:2px; }
+
+  /* header icon buttons + popovers */
+  .zwrap { position:relative; }
+  .icon-btn { width:34px; height:34px; display:grid; place-items:center; border:1px solid var(--line);
+              background:var(--card); color:var(--text); border-radius:8px; cursor:pointer; padding:0; font:inherit; }
+  .icon-btn:hover, .icon-btn[aria-expanded="true"] { border-color:var(--accent); color:var(--accent); }
+  .pop { position:absolute; right:0; top:calc(100% + 8px); z-index:20; padding:8px 12px; background:var(--card);
+         border:1px solid var(--line); border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,.3); }
+  .pop[hidden], #zoomctl[hidden], #colctl[hidden], #expctl[hidden], #purgectl[hidden] { display:none; }
+  #zoomctl { display:flex; gap:8px; align-items:center; }
+  #zoomctl button { border:0; background:none; color:var(--text); cursor:pointer; font:inherit; font-size:16px;
+                    line-height:1; padding:2px 4px; }
+  #zoomctl button.zv { font-size:12px; min-width:42px; color:var(--muted); }
+  #zoomctl input[type=range] { width:120px; padding:0; accent-color:var(--accent); }
+  #colctl { min-width:190px; padding:10px 14px; }
+  #colctl label { display:flex; gap:8px; align-items:center; padding:3px 0; cursor:pointer; white-space:nowrap; }
+  #colctl .hint { font-size:11px; color:var(--muted); margin-top:6px; max-width:210px; white-space:normal; }
+  .gh { margin:18px 20px 10px; padding:5px 14px; width:fit-content; max-width:calc(100% - 40px); font-size:14px; font-weight:600;
+        color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:999px; }
+  tbody tr.grp, tbody tr.grp:hover { background:rgba(127,127,127,.10); cursor:default; }
+  tr.grp td { font-weight:600; padding:7px 14px; }
+  .empty { padding:20px; color:var(--muted); }
+  [hidden] { display:none !important; }
+  .seg button + button { border-left:0; }
+  .tlctl { display:contents; }
+  .btn { padding:7px 14px; border:1px solid var(--line); background:var(--card); color:var(--text);
+         border-radius:8px; cursor:pointer; font:inherit; }
+  .btn:hover { border-color:var(--accent); color:var(--accent); }
+  .tl { margin:0 20px 18px; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .ev { display:grid; grid-template-columns:52px 12px minmax(0,1fr); gap:10px; align-items:start;
+        padding:10px 16px; border-bottom:1px solid var(--line); }
+  .ev:last-child { border-bottom:0; }
+  .ev .t { color:var(--muted); font-size:12px; padding-top:2px; font-variant-numeric:tabular-nums; }
+  .ev .pt { width:10px; height:10px; border-radius:50%; margin-top:5px; background:var(--bad); }
+  .ev.good .pt { background:var(--ok); } .ev.bad .pt { background:var(--danger); }
+  .ev.info .pt { background:var(--accent); } .ev.warn .pt { background:var(--warn); }
+  .ev a.dev { color:var(--text); font-weight:600; cursor:pointer; }
+  .ev a.dev:hover { color:var(--accent); text-decoration:underline; }
+  .ev .when { color:var(--muted); font-size:12px; margin-left:6px; white-space:nowrap; }
+  .tl-foot { padding:0 20px 24px; color:var(--muted); font-size:12px; }
+  .tl-more { padding:0 20px 14px; }
+  .up-ok { color:var(--ok); } .up-warn { color:var(--warn); } .up-bad { color:var(--danger); }
+  .dev-ev { font-size:13px; padding:3px 0; }
+  .note { margin-top:3px; font-size:12px; color:var(--muted); max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .note::before { content:"\270E\00a0"; }
+  #drawer textarea { width:100%; min-height:84px; resize:vertical; padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+                     background:var(--bg); color:var(--text); font:inherit; box-sizing:border-box; }
+  .noterow { display:flex; gap:10px; align-items:center; margin:6px 0 4px; }
+  .rng { display:inline-flex; gap:4px; margin-bottom:6px; }
+  .rng button { padding:2px 9px; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:999px; cursor:pointer; font:inherit; font-size:12px; }
+  .rng button.on { border-color:var(--accent); color:var(--accent); }
+  .lstats { display:flex; flex-wrap:wrap; gap:4px 16px; margin:6px 0; font-size:13px; }
+  .lstats span { color:var(--muted); } .lstats b { color:var(--text); font-weight:600; }
+  #expctl, #purgectl { min-width:230px; padding:12px 14px; }
+  #expctl .dl, #purgectl .dl { margin:8px 0 6px; } #expctl .dl:first-child, #purgectl .dl:first-child { margin-top:0; }
+  #expctl select, #purgectl select { width:100%; margin-bottom:6px; }
+  .exrow { display:flex; gap:8px; margin-bottom:4px; }
+  #purgectl .sub { margin:6px 0; max-width:260px; white-space:normal; }
+  .btn.danger { border-color:var(--danger); color:var(--danger); }
+  .btn.danger:hover { background:var(--danger); color:#fff; }
+  .btn:disabled { opacity:.45; cursor:default; }
+  /* API key dialog */
+  #keydlg { width:min(460px, calc(100% - 32px)); padding:18px 20px; border:1px solid var(--line); border-radius:12px;
+            background:var(--card); color:var(--text); box-shadow:0 10px 40px rgba(0,0,0,.4); }
+  #keydlg::backdrop { background:rgba(0,0,0,.5); }
+  #keydlg h2 { font-size:16px; margin:0 0 8px; }
+  #keydlg p { margin:0 0 10px; }
+  #keydlg ol { margin:0 0 12px; padding-left:20px; }
+  #keydlg a { color:var(--accent); }
+  #keydlg input { width:100%; font-family:ui-monospace, monospace; }
+  #keydlg .kerr { color:var(--danger); margin-top:8px; }
+  #keydlg .krow { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  #keydlg .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #kbtn.warn { color:var(--warn); border-color:var(--warn); }
+  #toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:40; padding:9px 16px; border-radius:10px;
+           background:var(--card); color:var(--text); border:1px solid var(--accent); box-shadow:0 6px 20px rgba(0,0,0,.3); }
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <h1>Tailnet Dashboard</h1>
+  <span class="meta" id="status"></span>
+  <button class="icon-btn" id="kbtn" title="Tailscale API key" aria-label="Tailscale API key">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L20 3M16 7l3 3M14 9l2 2"/></svg>
+  </button>
+  <div class="zwrap" id="ewrap">
+    <button class="icon-btn" id="ebtn" title="Export" aria-label="Export" aria-expanded="false">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
+    </button>
+    <div class="pop" id="expctl" hidden>
+      <div class="dl">Devices</div>
+      <select id="ex-scope" aria-label="Which devices"><option value="active">Active devices</option><option value="archived">Archived devices</option><option value="all">Active + archived</option></select>
+      <div class="exrow"><button class="btn" data-ex="devices" data-fmt="csv">CSV</button><button class="btn" data-ex="devices" data-fmt="json">JSON</button></div>
+      <div class="dl">Timeline events (everything recorded)</div>
+      <div class="exrow"><button class="btn" data-ex="events" data-fmt="csv">CSV</button><button class="btn" data-ex="events" data-fmt="json">JSON</button></div>
+    </div>
+  </div>
+  <button class="icon-btn" id="thbtn" title="Theme" aria-label="Theme"></button>
+  <div class="zwrap" id="zwrap">
+    <button class="icon-btn" id="zbtn" title="Zoom (shortcuts: + − 0)" aria-label="Zoom" aria-expanded="false">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg>
+    </button>
+    <div class="pop" id="zoomctl" hidden>
+      <button id="z-out" aria-label="Zoom out">−</button>
+      <input id="z" type="range" min="50" max="150" step="5" value="100" aria-label="Page zoom">
+      <button id="z-in" aria-label="Zoom in">+</button>
+      <button id="z-val" class="zv" title="Reset to 100% (shortcut: 0)">100%</button>
+    </div>
+  </div>
+</header>
+<div id="page">
+<div class="summary" id="summary"></div>
+<details id="dns" class="panel" open>
+  <summary>Tailscale DNS <span id="dns-magic"></span> <span class="sub" id="dns-domain"></span></summary>
+  <div id="dns-body" class="dns-grid"><div class="dbox sub">Waiting for first sync…</div></div>
+</details>
+<div class="bar">
+  <div class="seg"><button id="t-active" class="on">Active</button><button id="t-arch">Archived</button><button id="t-time">Timeline</button></div>
+  <span class="tlctl" id="tlctl" hidden>
+    <select id="tl-dev" title="Device"><option value="">All devices</option></select>
+    <select id="tl-kind" title="Type of event"><option value="">All events</option><option value="life">Joined / removed</option><option value="presence">Online / offline</option><option value="version">Version changes</option><option value="network">SSH, exit node &amp; subnets</option><option value="key">Key expiry</option><option value="type">Type changes</option></select>
+    <select id="tl-days" title="Period"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="">All time</option></select>
+  </span>
+  <input class="lv" id="q" placeholder="Search name, IP, type…" size="24">
+  <select class="lv" id="f"><option value="">All states</option><option value="on">Online</option><option value="off">Offline</option></select>
+  <select class="lv" id="ft"><option value="">All types</option></select>
+  <select class="lv" id="fe"><option value="">All devices</option><option value="exit">Exit nodes only</option><option value="subnet">Subnet routers only</option><option value="update">Update available</option><option value="keys">Key expiring soon</option></select>
+  <select class="lv" id="g"><option value="">No grouping</option><option value="type">Group by type</option><option value="type-az">Group by type (A–Z)</option><option value="type-count">Group by type (most machines)</option></select>
+  <select class="lv" id="sk" title="Sort by"></select>
+  <button class="icon-btn lv" id="sd" title="Reverse sort order" aria-label="Reverse sort order">↑</button>
+  <span class="spacer"></span>
+  <div class="zwrap" id="pwrap" hidden>
+    <button class="btn" id="purgebtn" aria-expanded="false">Purge…</button>
+    <div class="pop" id="purgectl" hidden>
+      <div class="dl">Permanently delete archived devices</div>
+      <select id="pg-age" aria-label="Which archived devices">
+        <option value="30">Archived over 30 days ago</option><option value="90">Archived over 90 days ago</option>
+        <option value="365">Archived over a year ago</option><option value="">All archived devices</option></select>
+      <div class="sub" id="pg-count">Checking…</div>
+      <div class="sub">Also removes their type, notes and latency history. The timeline keeps its record. This can't be undone.</div>
+      <button class="btn danger" id="pg-go" disabled>Delete</button>
+    </div>
+  </div>
+  <div class="zwrap lv" id="cwrap">
+    <button class="icon-btn" id="cbtn" title="Choose columns" aria-label="Choose columns" aria-expanded="false">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+    </button>
+    <div class="pop" id="colctl" hidden></div>
+  </div>
+  <div class="seg lv"><button id="v-table" class="on">Table</button><button id="v-cards">Cards</button></div>
+</div>
+<div id="out"></div>
+</div>
+</div>
+<aside id="drawer"></aside>
+<div id="toast" role="status" hidden></div>
+<dialog id="keydlg" aria-labelledby="k-title">
+  <form id="k-form" method="dialog">
+    <h2 id="k-title">Tailscale API key</h2>
+    <p id="k-why"></p>
+    <ol class="sub">
+      <li>Open the admin console: <a href="https://login.tailscale.com/admin/settings/keys" target="_blank" rel="noopener noreferrer">Settings → Keys</a>.</li>
+      <li>Under <b>API access tokens</b>, choose <b>Generate access token</b>.</li>
+      <li>Copy the <code>tskey-api-…</code> value and paste it here. (An auth key won't work.)</li>
+    </ol>
+    <input id="k-in" type="password" placeholder="tskey-api-…" autocomplete="off" spellcheck="false" aria-label="API access token">
+    <div class="kerr" id="k-err" role="alert" hidden></div>
+    <div class="sub" style="margin-top:8px">The key is checked with Tailscale, then saved on the dashboard's server. It is never shown again or sent back to the page.</div>
+    <div class="krow">
+      <button type="button" class="btn" id="k-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="k-save">Check and save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+let view = "active", layout = "table", data = [], allActive = [], allArchived = [], cats = [];
+// Default to cards on phones; a layout the person picked themselves always wins.
+// (The old "layout" key was written automatically on every load, so only its "cards" value
+// can be trusted as a real choice.)
+let savedLayout = null;
+try {
+  savedLayout = localStorage.getItem("layoutPref")
+    || (localStorage.getItem("layout") === "cards" ? "cards" : null);
+} catch (e) {}
+const isMobile = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 700px)").matches;
+layout = savedLayout === "table" || savedLayout === "cards" ? savedLayout : (isMobile ? "cards" : "table");
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const DAY = 86400000;
+
+function ago(iso) {
+  if (!iso) return "—";
+  const s = (Date.now() - new Date(iso)) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + " min ago";
+  if (s < 86400) return Math.floor(s / 3600) + " h ago";
+  return Math.floor(s / 86400) + " d ago";
+}
+
+/* ---------- node key expiry ---------- */
+function keyInfo(d) {
+  if (d.archived_at) return {state: "none"};
+  if (d.raw && d.raw.keyExpiryDisabled) return {state: "disabled"};
+  if (!d.key_expires) return {state: "unknown"};
+  const ms = new Date(d.key_expires) - Date.now();
+  if (isNaN(ms)) return {state: "unknown"};
+  if (ms < 0) return {state: "expired", days: Math.max(1, Math.ceil(-ms / DAY))};
+  return {state: ms <= 14 * DAY ? "soon" : "ok", days: Math.ceil(ms / DAY)};
+}
+const keyBadge = d => {
+  const k = keyInfo(d);
+  if (k.state === "expired") return `<span class="pill danger" title="Node key expired on ${esc(d.key_expires)}">Key expired</span>`;
+  if (k.state === "soon") return `<span class="pill pending" title="Node key expires on ${esc(d.key_expires)}">Key expires in ${k.days} d</span>`;
+  return "";
+};
+const keyCell = d => {
+  const k = keyInfo(d);
+  if (k.state === "disabled") return '<span class="sub">No expiry</span>';
+  if (k.state === "expired") return `<span class="neg" title="${esc(d.key_expires)}">expired ${k.days} d ago</span>`;
+  if (k.state === "ok" || k.state === "soon")
+    return `<span title="${esc(d.key_expires)}" ${k.state === "soon" ? 'class="err"' : ""}>in ${k.days < 60 ? k.days + " d" : Math.round(k.days / 30) + " mo"}</span>`;
+  return "—";
+};
+const keyLong = d => {
+  const k = keyInfo(d);
+  return k.state === "disabled" ? "expiry disabled" : k.state === "none" || k.state === "unknown" ? "—"
+    : `${d.key_expires} (${k.state === "expired" ? "expired" : "in " + k.days + " d"})`;
+};
+
+/* ---------- small renderers ---------- */
+const yn = v => v === null || v === undefined ? '<span class="pill">n/a</span>'
+  : `<span class="pill ${v ? "yes" : ""}">${v ? "open" : "closed"}</span>`;
+const ip4 = d => (d.addresses || []).find(a => a.includes("."));
+const sshAvail = d => d.name && (d.ts_ssh || d.ssh_open === 1);
+const copyIcon = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+const copyBtn = (text, title) => text
+  ? `<button class="copy" data-copy="${esc(text)}" title="${esc(title)}" aria-label="${esc(title)}">${copyIcon}</button>` : "";
+const sshCopy = d => sshAvail(d) ? copyBtn("ssh " + d.name, "Copy ssh command") : "";
+const sshPill = d => {
+  if (d.ts_ssh === null || d.ts_ssh === undefined) return '<span class="pill">n/a</span>';
+  const ts = d.ts_ssh ? '<span class="pill yes">Tailscale SSH</span>' : '<span class="pill">Tailscale SSH off</span>';
+  const sshd = !d.ts_ssh && d.ssh_open ? ' <span class="pill" title="A regular SSH server (sshd) is answering on port 22">sshd :22</span>' : "";
+  return ts + sshd + " " + sshCopy(d);
+};
+const appLink = d => view === "active" && d.category === "Application" && d.name
+  ? `<a class="open" href="https://${esc(d.name)}" target="_blank" rel="noopener noreferrer"
+       title="Open https://${esc(d.name)}">Open ↗</a>` : "";
+const exitBadge = d => d.exit_node === "active" ? '<span class="pill exit">Exit node</span>'
+  : d.exit_node === "pending" ? '<span class="pill pending" title="Advertised but not approved in the admin console">Exit node · pending</span>' : "";
+const subnetBadge = d => {
+  const s = d.subnets || {approved: [], pending: []};
+  return (s.approved.length ? `<span class="pill subnet" title="Approved subnet routes:\n${esc(s.approved.join("\n"))}">Subnets (${s.approved.length})</span>` : "")
+    + (s.pending.length ? ` <span class="pill pending" title="Advertised but not approved in the admin console:\n${esc(s.pending.join("\n"))}">Subnets pending (${s.pending.length})</span>` : "");
+};
+const netBadges = d => [exitBadge(d), subnetBadge(d), keyBadge(d)].filter(Boolean).join(" ");
+const verCell = d => (d.client_version ? esc(d.client_version.split("-")[0]) : "—")
+  + (d.update_available ? ' <span class="pill pending" title="A newer Tailscale version is available">Update</span>' : "");
+const ips = d => esc((d.addresses || []).filter(a => a.includes(".")).join(", "));
+const ipCell = d => ips(d) + " " + copyBtn(ip4(d), "Copy IP");
+const sortedCats = () => [...cats].sort((a, b) => a.localeCompare(b));
+const catSelect = d => `<select class="cat" data-id="${esc(d.id)}">
+  <option value="">— type —</option>${sortedCats().map(c => `<option ${c === d.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
+
+/* ---------- uptime ---------- */
+const upVal = (d, w = "30") => d.uptime && d.uptime[w] !== null && d.uptime[w] !== undefined ? d.uptime[w] : null;
+const uptimeCell = d => {
+  const v = upVal(d);
+  if (v === null) return `<span class="sub" title="${d.uptime ? "Less than an hour of data in this window" : "Not tracked yet"}">—</span>`;
+  const cls = v >= 99 ? "up-ok" : v >= 95 ? "" : v >= 80 ? "up-warn" : "up-bad";
+  const partial = d.uptime.tracked_days < 30;
+  return `<span class="${cls}" title="Online ${v}% of the time over ${partial ? "the " + d.uptime.tracked_days + " days tracked so far" : "the last 30 days"}">${v}%</span>`
+    + (partial ? ` <span class="sub">· ${Math.max(1, Math.floor(d.uptime.tracked_days))} d</span>` : "");
+};
+const upText = d => {
+  if (!d.uptime) return "—";
+  const f = v => v === null || v === undefined ? "—" : v + "%";
+  return `${f(d.uptime["7"])} (7 d) · ${f(d.uptime["30"])} (30 d) · tracked for ${d.uptime.tracked_days} d`;
+};
+
+/* ---------- sorting ---------- */
+const SORTS = {
+  name:     {label: "Name",       val: d => (d.hostname || d.name || "").toLowerCase()},
+  ip:       {label: "IP",         val: d => { const a = ip4(d); return a ? a.split(".").reduce((n, p) => n * 256 + (+p), 0) : Infinity; }},
+  status:   {label: "Status",     val: d => d.online ? 0 : 1},
+  type:     {label: "Type",       val: d => d.category ? d.category.toLowerCase() : "\uffff"},
+  ssh:      {label: "SSH",        val: d => d.ts_ssh ? 0 : d.ssh_open === 1 ? 1 : d.ssh_open === 0 ? 2 : 3},
+  https:    {label: "HTTPS",      val: d => d.https_open === 1 ? 0 : d.https_open === 0 ? 1 : 2},
+  version:  {label: "Version",    val: d => { const p = (d.client_version || "").split("-")[0].split(".").map(Number).filter(n => !isNaN(n)); return p.length ? p : [-1]; }},
+  key:      {label: "Key expiry", val: d => ["ok", "soon", "expired"].includes(keyInfo(d).state) ? Date.parse(d.key_expires) : Infinity},
+  uptime:   {label: "Uptime (30d)", val: d => upVal(d) ?? -1},
+  ping:     {label: "Ping",       val: d => d.online && d.ping_ms != null ? d.ping_ms : Infinity},
+  relay:    {label: "Relay latency", val: d => d.relay ? d.relay.ms : Infinity},
+  seen:     {label: "Last seen",  val: d => d.last_seen ? Date.parse(d.last_seen) : 0},
+  archived: {label: "Archived",   val: d => d.archived_at ? Date.parse(d.archived_at) : 0},
+};
+const DEFAULT_DIR = {seen: "desc", archived: "desc"};
+let sort = {key: "name", dir: "asc"};
+try {
+  const s = JSON.parse(localStorage.getItem("sort") || "null");
+  if (s && SORTS[s.key] && (s.dir === "asc" || s.dir === "desc")) sort = s;
+} catch (e) {}
+
+function cmpVals(a, b) {
+  if (Array.isArray(a)) {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const x = a[i] ?? -1, y = b[i] ?? -1;
+      if (x !== y) return x < y ? -1 : 1;
+    }
+    return 0;
+  }
+  if (typeof a === "string") return a.localeCompare(b, undefined, {numeric: true});
+  return a === b ? 0 : a < b ? -1 : 1;
+}
+function sortRows(rows) {
+  const s = SORTS[sort.key] || SORTS.name, m = sort.dir === "desc" ? -1 : 1;
+  return rows.map(d => ({d, v: s.val(d), n: SORTS.name.val(d)}))
+    .sort((x, y) => m * cmpVals(x.v, y.v) || cmpVals(x.n, y.n)).map(x => x.d);
+}
+function syncSortControls() {
+  $("sk").value = sort.key;
+  $("sd").textContent = sort.dir === "asc" ? "↑" : "↓";
+  $("sd").title = sort.dir === "asc" ? "Ascending (click to reverse)" : "Descending (click to reverse)";
+  const opt = [...$("sk").options].find(o => o.value === "archived");
+  if (opt) opt.hidden = view === "active";
+}
+function setSort(key, dir) {
+  sort = {key, dir: dir || (sort.key === key ? (sort.dir === "asc" ? "desc" : "asc") : (DEFAULT_DIR[key] || "asc"))};
+  try { localStorage.setItem("sort", JSON.stringify(sort)); } catch (e) {}
+  syncSortControls();
+  render();
+}
+$("sk").innerHTML = Object.entries(SORTS).map(([k, s]) => `<option value="${k}">Sort: ${s.label}</option>`).join("");
+$("sk").onchange = () => setSort($("sk").value, DEFAULT_DIR[$("sk").value] || "asc");
+$("sd").onclick = () => setSort(sort.key, sort.dir === "asc" ? "desc" : "asc");
+
+/* ---------- column chooser ---------- */
+const COLS = [
+  {id: "ip",      label: "IP",          sort: "ip"},
+  {id: "status",  label: "Status",      sort: "status"},
+  {id: "type",    label: "Type",        sort: "type"},
+  {id: "ssh",     label: "SSH",         sort: "ssh"},
+  {id: "https",   label: "HTTPS :443",  sort: "https"},
+  {id: "version", label: "Version",     sort: "version"},
+  {id: "key",     label: "Key expiry",  sort: "key"},
+  {id: "uptime",  label: "Uptime (30d)", sort: "uptime"},
+  {id: "ping",    label: "Ping",        sort: "ping"},
+  {id: "relay",   label: "DERP relay",  sort: "relay"},
+  {id: "seen",    label: "Last seen",   sort: "seen"},
+];
+const DEFAULT_OFF = ["relay"];  // available, but not shown until asked for
+let colsOn = new Set(COLS.map(c => c.id).filter(id => !DEFAULT_OFF.includes(id)));
+try {
+  const saved = JSON.parse(localStorage.getItem("cols") || "null");
+  if (Array.isArray(saved)) {
+    colsOn = new Set(saved.filter(id => COLS.some(c => c.id === id)));
+    // a column added later should show up for people who had already customised their columns
+    const v = localStorage.getItem("colsV");
+    if (v !== "3") {
+      if (v !== "2") colsOn.add("uptime");
+      colsOn.add("ping");
+      localStorage.setItem("cols", JSON.stringify([...colsOn]));
+    }
+  }
+  localStorage.setItem("colsV", "3");
+} catch (e) {}
+const colOn = id => colsOn.has(id);
+function renderColCtl() {
+  $("colctl").innerHTML = COLS.map(c => `<label><input type="checkbox" data-col="${c.id}" ${colOn(c.id) ? "checked" : ""}> ${c.label}</label>`).join("")
+    + '<div class="hint">Applies to the table and to cards (cards always show status).</div>'
+    + '<div style="margin-top:6px"><button class="link" id="col-reset">Show all</button></div>';
+}
+$("colctl").onchange = e => {
+  const id = e.target.dataset && e.target.dataset.col;
+  if (!id) return;
+  e.target.checked ? colsOn.add(id) : colsOn.delete(id);
+  try { localStorage.setItem("cols", JSON.stringify([...colsOn])); } catch (err) {}
+  render();
+};
+$("colctl").onclick = e => {
+  if (e.target.id !== "col-reset") return;
+  colsOn = new Set(COLS.map(c => c.id));
+  try { localStorage.setItem("cols", JSON.stringify([...colsOn])); } catch (err) {}
+  renderColCtl(); render();
+};
+
+/* ---------- latency, notes, toast ---------- */
+const msCls = v => v < 50 ? "up-ok" : v < 150 ? "" : "up-warn";
+function pingCell(d) {
+  if (!d.online || (d.ping_ms == null && d.ssh_open == null)) return "—";  // offline, or probing is switched off
+  if (d.ping_ms == null) return '<span class="up-warn" title="Tailscale says it is online, but it did not answer a connection attempt on :22 or :443">no reply</span>';
+  return `<span class="${msCls(d.ping_ms)}" title="Time to open a TCP connection from this dashboard to the device">${Math.round(d.ping_ms)} ms</span>`;
+}
+const relayCell = d => d.relay
+  ? `<span title="Latency from the device to its preferred DERP relay">${esc(d.relay.name)} · <span class="${msCls(d.relay.ms)}">${Math.round(d.relay.ms)} ms</span></span>` : "—";
+const noteLine = d => d.note ? `<div class="note" title="${esc(d.note)}">${esc(d.note.length > 70 ? d.note.slice(0, 70) + "…" : d.note)}</div>` : "";
+let toastTimer = null;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
+}
+function sparkline(series) {
+  const W = 440, H = 72, P = 4;
+  if (!series.length) return "";
+  const ts = series.map(p => p.t), t0 = Math.min(...ts), t1 = Math.max(...ts);
+  const vals = series.flatMap(p => [p.ms, p.relay]).filter(v => v != null);
+  const vmax = Math.max(10, ...vals);
+  const x = t => (P + (t1 === t0 ? (W - 2 * P) / 2 : (t - t0) / (t1 - t0) * (W - 2 * P))).toFixed(1);
+  const y = v => (H - P - v / vmax * (H - 2 * P)).toFixed(1);
+  const path = key => { let d = "", pen = false;
+    for (const p of series) { if (p[key] == null) { pen = false; continue; } d += (pen ? "L" : "M") + x(p.t) + " " + y(p[key]) + " "; pen = true; }
+    return d; };
+  const dots = series.length <= 80 ? series.filter(p => p.ms != null).map(p => `<circle cx="${x(p.t)}" cy="${y(p.ms)}" r="1.8" fill="var(--accent)"/>`).join("") : "";
+  const lost = series.filter(p => p.ms == null).map(p => `<circle cx="${x(p.t)}" cy="${H - P}" r="2.5" fill="var(--danger)"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Latency over time">`
+    + `<path d="${path("relay")}" fill="none" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"/>`
+    + `<path d="${path("ms")}" fill="none" stroke="var(--accent)" stroke-width="1.5"/>${dots}${lost}</svg>`
+    + `<div class="sub">Scale 0–${Math.round(vmax)} ms · solid: dashboard → device · dashed: device → its DERP relay · red dots: no reply</div>`;
+}
+async function loadLatency(id, days) {
+  const box = $("dr-lat");
+  try {
+    const j = await fetch(`/api/devices/${encodeURIComponent(id)}/latency?days=${days}`).then(r => r.json());
+    if ($("drawer").dataset.dev !== id) return;
+    if (!j.samples) { box.innerHTML = "No samples in this period yet. They are taken every few minutes while the device is online."; return; }
+    const f = v => v == null ? "—" : v + " ms";
+    box.innerHTML = `<div class="lstats"><span>median <b>${f(j.median)}</b></span><span>95th pct <b>${f(j.p95)}</b></span>`
+      + `<span>min–max <b>${j.min == null ? "—" : j.min + "–" + j.max + " ms"}</b></span><span>jitter <b>${f(j.jitter)}</b></span>`
+      + `<span>no reply <b>${j.loss_pct}%</b></span><span>samples <b>${j.samples}</b></span>`
+      + (j.relay_median != null ? `<span>relay <b>${f(j.relay_median)}</b></span>` : "") + "</div>" + sparkline(j.series);
+  } catch (e) { box.textContent = "Couldn't load latency."; }
+}
+async function saveNote(d) {
+  const ta = $("dr-note"), st = $("dr-note-st");
+  st.textContent = "Saving…";
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(d.id)}/note`, {
+      method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({note: ta.value})});
+    if (!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    d.note = j.note;
+    st.textContent = j.note ? "Saved" : "Note removed";
+    render(); load();
+  } catch (e) { st.textContent = "Couldn't save"; }
+}
+
+/* ---------- data loading ---------- */
+async function load() {
+  try {
+    const [dev, arch, s, c] = await Promise.all([
+      fetch("/api/devices").then(r => r.json()),
+      fetch("/api/archive").then(r => r.json()),
+      fetch("/api/status").then(r => r.json()),
+      fetch("/api/categories").then(r => r.json())]);
+    allActive = dev; allArchived = arch;
+    data = view === "active" ? dev : arch;
+    if (cats.join() !== c.join()) {
+      cats = c;
+      $("ft").innerHTML = '<option value="">All types</option><option value="__none">Unassigned</option>'
+        + sortedCats().map(x => `<option>${esc(x)}</option>`).join("");
+    }
+    fetch("/api/dns").then(r => r.json()).then(renderDns).catch(() => {});
+    $("t-active").textContent = `Active (${allActive.length})`;
+    $("t-arch").textContent = `Archived (${allArchived.length})`;
+    const k = s.key || {};
+    let st = s.last_error
+      ? `<span class="err">API error: ${esc(s.last_error)}</span>`
+      : (s.last_poll ? `Last sync ${ago(s.last_poll)}` : "Waiting for first sync…");
+    if (k.status === "missing") st = `<span class="err">No API key set</span>`;
+    else if (k.status === "invalid") st = `<span class="err">API key rejected by Tailscale</span>`;
+    else if (k.expiring) st += ` · <span class="err">API key ${k.expires_in_days <= 0 ? "has expired" : "expires in " + Math.ceil(k.expires_in_days) + " day" + (Math.ceil(k.expires_in_days) === 1 ? "" : "s")}</span>`;
+    $("status").innerHTML = st;
+    keyState(k);
+    if (view === "timeline") loadTimeline("refresh");
+    // don't redraw while a dropdown is open, or the auto-refresh would close it
+    if (!(document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("cat"))) render();
+  } catch (e) { $("status").textContent = "Dashboard backend unreachable"; }
+}
+
+function visible() {
+  const q = $("q").value.toLowerCase(), f = $("f").value, ft = $("ft").value, fe = $("fe").value;
+  const feOk = d => !fe || (fe === "exit" ? d.exit_node
+    : fe === "subnet" ? d.subnets.advertised.length
+    : fe === "update" ? d.update_available
+    : ["soon", "expired"].includes(keyInfo(d).state));
+  return sortRows(data.filter(d =>
+    (!q || [d.name, d.hostname, d.category, d.note, ...d.addresses, ...d.tags].join(" ").toLowerCase().includes(q)) &&
+    (view === "archived" || !f || (f === "on") === d.online) &&
+    (!ft || (ft === "__none" ? !d.category : d.category === ft)) &&
+    feOk(d)));
+}
+
+/* ---------- summary strip ---------- */
+function renderSummary() {
+  const a = allActive, f = $("f").value, fe = $("fe").value;
+  const n = pred => a.filter(pred).length;
+  const online = n(d => d.online);
+  const keys = n(d => ["soon", "expired"].includes(keyInfo(d).state));
+  const tile = (k, num, label, cls, on) =>
+    `<button class="tile ${cls} ${num ? "nz" : ""} ${on ? "on" : ""}" data-tile="${k}"><b>${num}</b><span>${label}</span></button>`;
+  $("summary").innerHTML =
+    tile("total", a.length, "Devices", "", false)
+    + tile("online", online, "Online", "ok", f === "on")
+    + tile("offline", a.length - online, "Offline", "", f === "off")
+    + tile("exit", n(d => d.exit_node === "active"), "Exit nodes", "exit", fe === "exit")
+    + tile("subnet", n(d => d.subnets.advertised.length > 0), "Subnet routers", "subnet", fe === "subnet")
+    + tile("update", n(d => d.update_available), "Updates available", "warn", fe === "update")
+    + tile("keys", keys, "Keys expiring", "danger", fe === "keys")
+    + medianTile(a);
+}
+function medianTile(a) {
+  const v = a.filter(d => d.online && d.ping_ms != null).map(d => d.ping_ms).sort((x, y) => x - y);
+  if (!v.length) return "";
+  const m = v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  return `<div class="tile" title="Median TCP connect time from this dashboard to the ${v.length} online devices that answered"><b>${Math.round(m)} ms</b><span>Median ping</span></div>`;
+}
+$("summary").onclick = e => {
+  const t = e.target.closest("[data-tile]");
+  if (!t) return;
+  const k = t.dataset.tile;
+  showView("active");
+  const toggle = (el, v) => { el.value = el.value === v ? "" : v; };
+  if (k === "total") { $("f").value = ""; $("fe").value = ""; $("ft").value = ""; $("q").value = ""; }
+  else if (k === "online") toggle($("f"), "on");
+  else if (k === "offline") toggle($("f"), "off");
+  else toggle($("fe"), k === "keys" ? "keys" : k);
+  render();
+};
+
+/* ---------- timeline ---------- */
+let tl = {events: [], more: false, loaded: false, since: null, devSig: "", seq: 0, loadingMore: false, pendingName: ""};
+const TL_KINDS = {"": "", life: "joined,removed,restored,authorized", presence: "online,offline", version: "version",
+  network: "ssh,exit_node,subnets,renamed", key: "key", type: "type"};
+function dur(s) {
+  s = Math.round(s);
+  if (s < 60) return s + " s";
+  if (s < 3600) return Math.round(s / 60) + " min";
+  if (s < 86400) { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h + " h" + (m ? " " + m + " min" : ""); }
+  const d = Math.floor(s / 86400), h = Math.round((s % 86400) / 3600); return d + " d" + (h ? " " + h + " h" : "");
+}
+function evInfo(e) {
+  const d = e.detail || {}, x = esc;
+  switch (e.kind) {
+    case "joined": return {cls: "good", html: `joined the tailnet${d.ip ? " as " + x(d.ip) : ""}`
+      + (d.os || d.version ? ` <span class="sub">(${x([d.os, d.version ? "Tailscale " + d.version : ""].filter(Boolean).join(" · "))})</span>` : "")};
+    case "restored": return {cls: "good", html: "is back on the tailnet (restored from the archive)"};
+    case "removed": return {cls: "bad", html: "was removed from the tailnet and archived"};
+    case "online": return {cls: "good", html: "came online" + (d.after ? ` <span class="sub">after ${dur(d.after)} offline</span>` : "")};
+    case "offline": return {cls: "", html: "went offline" + (d.after ? ` <span class="sub">after ${dur(d.after)} online</span>` : "")};
+    case "version": return {cls: "info", html: `Tailscale version ${x(d.from)} → ${x(d.to)}`};
+    case "ssh": return {cls: "info", html: `Tailscale SSH ${d.enabled ? "enabled" : "disabled"}`};
+    case "exit_node": return {cls: "info", html: d.to === "active" ? (d.from === "pending" ? "exit node approved" : "became an exit node")
+      : d.to === "pending" ? "advertised as an exit node (awaiting approval)" : "stopped being an exit node"};
+    case "subnets": {
+      const bits = [];
+      if (d.advertised_added) bits.push("advertises " + d.advertised_added.map(x).join(", "));
+      if (d.advertised_removed) bits.push("stopped advertising " + d.advertised_removed.map(x).join(", "));
+      if (d.approved_added) bits.push("routes approved: " + d.approved_added.map(x).join(", "));
+      if (d.approved_removed) bits.push("approval removed: " + d.approved_removed.map(x).join(", "));
+      return {cls: "info", html: "subnet routes: " + (bits.join("; ") || "changed")};
+    }
+    case "renamed": return {cls: "info", html: `renamed ${x(d.from)} → ${x(d.to)}`};
+    case "key": return {cls: "warn", html: d.disabled !== undefined ? `key expiry ${d.disabled ? "disabled" : "enabled"}`
+      : `node key renewed (now expires ${x(String(d.expires || "").slice(0, 10))})`};
+    case "authorized": return {cls: d.to ? "good" : "bad", html: d.to ? "was authorized" : "was deauthorized"};
+    case "type": return {cls: "", html: d.to ? (d.from ? `type changed ${x(d.from)} → ${x(d.to)}` : `type set to ${x(d.to)}`) : "type cleared"};
+    default: return {cls: "", html: x(e.kind)};
+  }
+}
+function dayLabel(iso) {
+  const d = new Date(iso), n = new Date();
+  const start = z => new Date(z.getFullYear(), z.getMonth(), z.getDate()).getTime();
+  const diff = Math.round((start(n) - start(d)) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, {weekday: "long", day: "numeric", month: "short", year: d.getFullYear() === n.getFullYear() ? undefined : "numeric"});
+}
+const hhmm = iso => new Date(iso).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+function evRow(e) {
+  const i = evInfo(e);
+  return `<div class="ev ${i.cls}"><span class="t" title="${esc(e.ts)}">${hhmm(e.ts)}</span><span class="pt"></span>
+    <div><a class="dev" data-dev="${esc(e.device_id || "")}" title="Show only this device">${esc(e.device_name || "(unknown)")}</a> ${i.html}
+    <span class="when">${ago(e.ts)}</span></div></div>`;
+}
+function renderTimeline() {
+  let html = "";
+  if (!tl.events.length) {
+    html = `<div class="wrap"><div class="empty">${!tl.loaded ? "Loading…" : tl.since
+      ? "No events in this period. Recording started " + esc(new Date(tl.since).toLocaleString()) + "; events appear when a device joins, leaves, goes offline or changes."
+      : "No events yet."}</div></div>`;
+  } else {
+    let cur = null, items = [];
+    const flush = () => { if (cur !== null) html += `<h3 class="gh">${esc(cur)} <span class="sub">· ${items.length}</span></h3><div class="tl">${items.join("")}</div>`; };
+    for (const e of tl.events) {
+      const k = dayLabel(e.ts);
+      if (k !== cur) { flush(); cur = k; items = []; }
+      items.push(evRow(e));
+    }
+    flush();
+    if (tl.more) html += '<div class="tl-more"><button class="btn" id="tl-more">Load more</button></div>';
+    if (tl.since) html += `<div class="tl-foot">Recording since ${esc(new Date(tl.since).toLocaleString())}. Changes before that weren't tracked.</div>`;
+  }
+  $("out").innerHTML = html;
+  $("out").querySelectorAll("a.dev[data-dev]").forEach(a => a.onclick = () => { if (a.dataset.dev) tlFilterDevice(a.dataset.dev, a.textContent); });
+  const more = $("tl-more");
+  if (more) more.onclick = () => loadTimeline("more");
+}
+function syncTlDevices(devs) {
+  const sel = $("tl-dev"), cur = sel.value;
+  const list = devs.slice();
+  if (cur && !list.some(d => d.id === cur)) list.push({id: cur, name: tl.pendingName || cur});
+  const sig = JSON.stringify(list);
+  if (sig === tl.devSig) return;
+  tl.devSig = sig;
+  sel.innerHTML = '<option value="">All devices</option>' + list.map(d => `<option value="${esc(d.id)}">${esc(d.name || d.id)}</option>`).join("");
+  sel.value = cur;
+}
+async function loadTimeline(mode = "fresh") {
+  if (mode === "more" && tl.loadingMore) return;
+  const my = ++tl.seq;
+  if (mode === "fresh") { tl.events = []; tl.loaded = false; if (view === "timeline") renderTimeline(); }
+  if (mode === "more") tl.loadingMore = true;
+  try {
+    const p = new URLSearchParams();
+    if ($("tl-dev").value) p.set("device", $("tl-dev").value);
+    const k = TL_KINDS[$("tl-kind").value]; if (k) p.set("kind", k);
+    if ($("tl-days").value) p.set("days", $("tl-days").value);
+    if (mode === "more" && tl.events.length) p.set("before", tl.events[tl.events.length - 1].id);
+    p.set("limit", mode === "refresh" ? Math.min(500, Math.max(100, tl.events.length)) : 100);
+    const j = await fetch("/api/events?" + p).then(r => r.json());
+    if (my !== tl.seq && mode !== "more") return;  // filters changed meanwhile; a newer request will render
+    tl.events = mode === "more" ? tl.events.concat(j.events) : j.events;
+    tl.more = j.more; tl.since = j.tracking_since; tl.loaded = true;
+    syncTlDevices(j.devices || []);
+  } catch (e) { $("status").textContent = "Dashboard backend unreachable"; }
+  tl.loadingMore = false;
+  if (view === "timeline") renderTimeline();
+}
+function tlFilterDevice(id, name) {
+  tl.pendingName = name || id;
+  const sel = $("tl-dev");
+  if (![...sel.options].some(o => o.value === id)) {
+    const o = document.createElement("option"); o.value = id; o.textContent = tl.pendingName; sel.appendChild(o);
+  }
+  sel.value = id;
+  loadTimeline("fresh");
+}
+$("tl-dev").onchange = $("tl-kind").onchange = $("tl-days").onchange = () => loadTimeline("fresh");
+
+/* ---------- main render ---------- */
+function render() {
+  renderSummary();
+  if (view === "timeline") { renderTimeline(); return; }
+  let rows = visible();
+  const active = view === "active";
+  let groups = [{label: null, items: rows}];
+  const mode = $("g").value;
+  if (mode.startsWith("type")) {
+    const names = [...new Set(rows.map(d => d.category).filter(Boolean))];
+    const order = [...cats.filter(c => names.includes(c)), ...names.filter(n => !cats.includes(n))];
+    groups = order.map(k => ({label: k, items: rows.filter(d => d.category === k)}));
+    if (mode === "type-az") groups.sort((a, b) => a.label.localeCompare(b.label));
+    if (mode === "type-count") groups.sort((a, b) => b.items.length - a.items.length || a.label.localeCompare(b.label));
+    const none = rows.filter(d => !d.category);
+    if (none.length) groups.push({label: "Unassigned", items: none});
+    rows = groups.flatMap(g => g.items);  // keep click indexes in the same order as the display
+  }
+  let idx = 0;
+  let html;
+  if (!rows.length) html = '<div class="wrap"><div class="empty">Nothing here yet.</div></div>';
+  else if (layout === "table") {
+    const th = (label, key) => `<th class="sortable" data-sort="${key}">${label}${sort.key === key ? ` <span class="arr">${sort.dir === "asc" ? "▲" : "▼"}</span>` : ""}</th>`;
+    const cols = COLS.filter(c => colOn(c.id));
+    const CELL = {
+      ip: ipCell,
+      status: d => `<span class="dot ${d.online ? "on" : ""}"></span>${d.online ? "Online" : "Offline"}`,
+      type: catSelect, ssh: sshPill, https: d => yn(d.https_open), version: verCell, key: keyCell, uptime: uptimeCell, ping: pingCell, relay: relayCell, seen: d => ago(d.last_seen),
+    };
+    const head = active
+      ? th("Device", "name") + cols.map(c => th(c.label, c.sort)).join("")
+      : th("Device", "name") + th("IP", "ip") + th("Type", "type") + th("Archived", "archived") + th("Last seen", "seen") + "<th></th>";
+    const colspan = active ? 1 + cols.length : 6;
+    const rowHtml = d => {
+      const i = idx++;
+      const name = `<b>${esc(d.hostname || d.name)}</b> ${netBadges(d)} ${appLink(d)}<div class="sub">${esc(d.name)} ${copyBtn(d.name, "Copy hostname")}</div>${noteLine(d)}`;
+      return active
+        ? `<tr data-i="${i}"><td>${name}</td>${cols.map(c => `<td>${CELL[c.id](d)}</td>`).join("")}</tr>`
+        : `<tr data-i="${i}"><td>${name}</td><td>${ipCell(d)}</td><td>${esc(d.category || "—")}</td>
+           <td>${ago(d.archived_at)}</td><td>${ago(d.last_seen)}</td>
+           <td><button class="link" data-del="${esc(d.id)}">delete</button></td></tr>`;
+    };
+    const body = groups.map(g => (g.label === null ? "" :
+      `<tr class="grp"><td colspan="${colspan}">${esc(g.label)} <span class="sub">· ${g.items.length}</span></td></tr>`)
+      + g.items.map(rowHtml).join("")).join("");
+    html = `<div class="wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  } else {
+    const cardHtml = d => {
+      const i = idx++;
+      const sshdPill = d.ssh_open === null || d.ssh_open === undefined || d.ssh_open === 2
+        ? '<span class="pill">n/a</span>' : d.ssh_open === 1 ? '<span class="pill yes">open</span>' : '<span class="pill">closed</span>';
+      const tsPill = d.ts_ssh === null || d.ts_ssh === undefined ? '<span class="pill">n/a</span>'
+        : d.ts_ssh ? '<span class="pill yes">on</span>' : '<span class="pill">off</span>';
+      const row = (label, val) => `<div class="row"><span>${label}</span><span class="val">${val}</span></div>`;
+      return `<div class="card" data-i="${i}">
+        <div class="top">
+          <div class="title"><b title="${esc(d.hostname || d.name)}">${esc(d.hostname || d.name)}</b>
+            <div class="fq"><span class="sub" title="${esc(d.name)}">${esc(d.name)}</span>${copyBtn(d.name, "Copy hostname")}</div></div>
+          <span class="state">${active
+            ? `<span class="dot ${d.online ? "on" : ""}"></span>${d.online ? "Online" : "Offline"}`
+            : '<span class="pill">Archived</span>'}</span>
+        </div>
+        <div class="badges">${netBadges(d)} ${appLink(d)}</div>
+        ${d.note ? `<div class="note" title="${esc(d.note)}">${esc(d.note.length > 90 ? d.note.slice(0, 90) + "…" : d.note)}</div>` : ""}
+        ${colOn("ip") ? row("IP", ipCell(d)) : ""}
+        ${colOn("type") ? row("Type", active ? catSelect(d) : esc(d.category || "—")) : ""}
+        ${active && colOn("ssh") ? row("Tailscale SSH", tsPill + (d.ts_ssh ? " " + sshCopy(d) : ""))
+            + row("sshd :22", sshdPill + (!d.ts_ssh && d.ssh_open === 1 ? " " + sshCopy(d) : "")) : ""}
+        ${active && colOn("https") ? row("HTTPS :443", yn(d.https_open)) : ""}
+        ${active && colOn("version") ? row("Version", verCell(d)) : ""}
+        ${active && colOn("key") ? row("Key expiry", keyCell(d)) : ""}
+        ${active && colOn("uptime") ? row("Uptime (30d)", uptimeCell(d)) : ""}
+        ${active && colOn("ping") ? row("Ping", pingCell(d)) : ""}
+        ${active && colOn("relay") ? row("DERP relay", relayCell(d)) : ""}
+        ${colOn("seen") ? row("Last seen", ago(d.last_seen)) : ""}
+        ${active ? "" : row("Archived", ago(d.archived_at)) + row("", `<button class="link" data-del="${esc(d.id)}">delete</button>`)}
+      </div>`;
+    };
+    html = groups.map(g => (g.label === null ? "" :
+      `<h3 class="gh">${esc(g.label)} <span class="sub">· ${g.items.length}</span></h3>`)
+      + '<div class="grid">' + g.items.map(cardHtml).join("") + "</div>").join("");
+  }
+  $("out").innerHTML = html;
+
+  $("out").querySelectorAll("th[data-sort]").forEach(h => h.onclick = () => setSort(h.dataset.sort));
+  $("out").querySelectorAll("[data-i]").forEach(el => el.onclick = e => {
+    if (e.target.closest("select, a, [data-del], .copy")) return;
+    const d = rows[el.dataset.i];
+    $("drawer").innerHTML = `<button class="link" onclick="$('drawer').classList.remove('open')">Close ✕</button>
+      <h2>${esc(d.hostname || d.name)} ${netBadges(d)}</h2>
+      <p class="sub">Type: ${esc(d.category || "—")} · First seen ${esc(d.first_seen)}${d.archived_at ? " · archived " + esc(d.archived_at) : ""}<br>
+      Key expires: ${esc(keyLong(d))} · ACL tags: ${esc(d.tags.join(", ") || "—")}<br>
+      Client ${esc(d.client_version || "—")}${d.update_available ? " (update available)" : ""}<br>
+      Subnets approved: ${esc(d.subnets.approved.join(", ") || "—")} · pending: ${esc(d.subnets.pending.join(", ") || "—")}<br>
+      Uptime: ${esc(upText(d))}</p>
+      <h3 style="margin:14px 0 6px;font-size:14px">Notes</h3>
+      <textarea id="dr-note" maxlength="5000" placeholder="Where it lives, what it runs, who looks after it…">${esc(d.note || "")}</textarea>
+      <div class="noterow"><button class="btn" id="dr-note-save">Save note</button><span class="sub" id="dr-note-st"></span></div>
+      <h3 style="margin:14px 0 6px;font-size:14px">Latency</h3>
+      <div class="rng" id="dr-rng"><button data-days="1">24 h</button><button data-days="7" class="on">7 d</button><button data-days="30">30 d</button></div>
+      <div id="dr-lat" class="sub">Loading…</div>
+      <h3 style="margin:14px 0 6px;font-size:14px">Recent activity</h3>
+      <div id="drawer-ev" class="sub">Loading…</div>
+      <div style="margin:6px 0 12px"><button class="link" id="dr-tl">Full timeline →</button></div>
+      <pre>${esc(JSON.stringify(d.raw, null, 2))}</pre>`;
+    $("drawer").classList.add("open");
+    $("drawer").dataset.dev = d.id;
+    $("dr-note-save").onclick = () => saveNote(d);
+    $("dr-note").onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveNote(d); } };
+    $("dr-rng").onclick = e => {
+      const b = e.target.closest("button[data-days]");
+      if (!b) return;
+      [...$("dr-rng").children].forEach(x => x.className = x === b ? "on" : "");
+      $("dr-lat").textContent = "Loading…";
+      loadLatency(d.id, b.dataset.days);
+    };
+    loadLatency(d.id, 7);
+    $("dr-tl").onclick = () => { $("drawer").classList.remove("open"); openTimelineFor(d.id, d.hostname || d.name); };
+    fetch(`/api/events?device=${encodeURIComponent(d.id)}&limit=8`).then(r => r.json()).then(j => {
+      if ($("drawer").dataset.dev !== d.id) return;  // another device was opened meanwhile
+      $("drawer-ev").innerHTML = j.events.length
+        ? j.events.map(e => `<div class="dev-ev"><span class="sub">${ago(e.ts)} ·</span> ${evInfo(e).html}</div>`).join("")
+        : "No events recorded yet.";
+    }).catch(() => { $("drawer-ev").textContent = "Couldn't load activity."; });
+  });
+  $("out").querySelectorAll("select.cat").forEach(sel => sel.onchange = async () => {
+    await fetch(`/api/devices/${sel.dataset.id}/category`, {
+      method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({category: sel.value || null})});
+    sel.blur(); load();
+  });
+  $("out").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    if (confirm("Permanently delete this archived record?")) {
+      await fetch("/api/archive/" + b.dataset.del, { method: "DELETE" }); load();
+    }
+  });
+}
+
+/* ---------- copy to clipboard ---------- */
+async function copyText(t) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(t); return true; }
+  } catch (e) {}
+  // plain-http fallback (the clipboard API needs HTTPS or localhost)
+  const ta = document.createElement("textarea");
+  ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) {}
+  ta.remove();
+  return ok;
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest && e.target.closest(".copy");
+  if (!b) return;
+  const original = b.innerHTML;
+  b.innerHTML = (await copyText(b.dataset.copy)) ? "✓" : "!";
+  setTimeout(() => { b.innerHTML = original; }, 1200);
+});
+
+/* ---------- DNS panel ---------- */
+function renderDns(x) {
+  if (!x || !x.updated) return;
+  const e = k => x.errors && x.errors[k] ? `<div class="err">Unavailable: ${esc(x.errors[k])}</div>` : "";
+  const chips = a => a && a.length ? a.map(v => `<span class="chip">${esc(v)}</span>`).join("") : '<span class="sub">None</span>';
+  const box = (t, inner) => `<div class="dbox"><div class="dl">${t}</div>${inner}</div>`;
+  const split = x.split_dns && Object.keys(x.split_dns).length
+    ? Object.entries(x.split_dns).map(([dom, ns]) =>
+        `<div class="split"><span class="chip">${esc(dom)}</span> → ${ns && ns.length ? ns.map(n => `<span class="chip">${esc(n)}</span>`).join("") : '<span class="sub">default</span>'}</div>`).join("")
+    : '<span class="sub">None</span>';
+  $("dns-magic").innerHTML = x.magic_dns === undefined ? "" : `<span class="pill ${x.magic_dns ? "yes" : ""}">MagicDNS ${x.magic_dns ? "on" : "off"}</span>`;
+  $("dns-domain").textContent = x.domain || "";
+  $("dns-body").innerHTML =
+    box("Tailnet domain", x.domain ? `<span class="chip">${esc(x.domain)}</span>` : '<span class="sub">Unknown</span>')
+    + box("Global nameservers", e("nameservers") || chips(x.nameservers))
+    + box("Search domains", e("search_paths") || chips(x.search_paths))
+    + box("Split DNS", e("split_dns") || split);
+}
+
+/* ---------- zoom ---------- */
+let zoom = 100;
+try { zoom = parseInt(localStorage.getItem("zoom"), 10) || 100; } catch (e) {}
+function setZoom(v) {
+  zoom = Math.min(150, Math.max(50, Math.round(v / 5) * 5));
+  $("page").style.zoom = zoom / 100;
+  $("z").value = zoom;
+  $("z-val").textContent = zoom + "%";
+  try { localStorage.setItem("zoom", zoom); } catch (e) {}
+}
+$("z").oninput = () => setZoom(+$("z").value);
+$("z-in").onclick = () => setZoom(zoom + 5);
+$("z-out").onclick = () => setZoom(zoom - 5);
+$("z-val").onclick = () => setZoom(100);
+
+/* ---------- popovers (zoom, columns) ---------- */
+const POPS = [["zoomctl", "zbtn", "zwrap"], ["colctl", "cbtn", "cwrap"], ["expctl", "ebtn", "ewrap"], ["purgectl", "purgebtn", "pwrap"]];
+function closePops(except) {
+  POPS.forEach(([p, b]) => { if (p !== except) { $(p).hidden = true; $(b).setAttribute("aria-expanded", "false"); } });
+}
+function togglePop(p, b) {
+  const show = $(p).hidden;
+  closePops(show ? p : null);
+  $(p).hidden = !show;
+  $(b).setAttribute("aria-expanded", show ? "true" : "false");
+}
+$("zbtn").onclick = () => togglePop("zoomctl", "zbtn");
+$("cbtn").onclick = () => togglePop("colctl", "cbtn");
+$("ebtn").onclick = () => { $("ex-scope").value = view === "archived" ? "archived" : "active"; togglePop("expctl", "ebtn"); };
+$("expctl").onclick = e => {
+  const b = e.target.closest("button[data-ex]");
+  if (!b) return;
+  const url = b.dataset.ex === "devices"
+    ? `/api/export/devices?format=${b.dataset.fmt}&scope=${$("ex-scope").value}`
+    : `/api/export/events?format=${b.dataset.fmt}`;
+  const a = document.createElement("a");
+  a.href = url; a.download = "";
+  document.body.appendChild(a); a.click(); a.remove();
+  closePops(null);
+  toast("Export started");
+};
+
+/* ---------- purge archived devices ---------- */
+let purgeN = 0;
+async function purgeCheck() {
+  const v = $("pg-age").value, body = {dry_run: true};
+  if (v) body.older_than_days = +v;
+  $("pg-count").textContent = "Checking…"; $("pg-go").disabled = true;
+  try {
+    const j = await fetch("/api/archive/purge", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then(r => r.json());
+    purgeN = j.count;
+    $("pg-count").textContent = j.count ? `${j.count} archived device${j.count === 1 ? "" : "s"} will be deleted.` : "Nothing matches.";
+    $("pg-go").textContent = j.count ? `Delete ${j.count} device${j.count === 1 ? "" : "s"}` : "Delete";
+    $("pg-go").disabled = !j.count;
+  } catch (e) { $("pg-count").textContent = "Couldn't check."; }
+}
+$("purgebtn").onclick = () => { const opening = $("purgectl").hidden; togglePop("purgectl", "purgebtn"); if (opening) purgeCheck(); };
+$("pg-age").onchange = purgeCheck;
+$("pg-go").onclick = async () => {
+  const v = $("pg-age").value, body = {};
+  if (v) body.older_than_days = +v;
+  $("pg-go").disabled = true;
+  try {
+    const j = await fetch("/api/archive/purge", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then(r => r.json());
+    closePops(null);
+    toast(`Deleted ${j.count} archived device${j.count === 1 ? "" : "s"}`);
+    load();
+  } catch (e) { $("pg-count").textContent = "Couldn't purge."; }
+};
+document.addEventListener("click", e => {
+  POPS.forEach(([p, b, w]) => {
+    if (!e.target.closest("#" + w)) { $(p).hidden = true; $(b).setAttribute("aria-expanded", "false"); }
+  });
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { closePops(null); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target || {}, tag = (t.tagName || "").toUpperCase();
+  const typing = tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable
+    || (tag === "INPUT" && !["range", "checkbox", "radio", "button"].includes(t.type));
+  if (typing) return;
+  if (e.key === "+" || e.key === "=") { e.preventDefault(); setZoom(zoom + 5); }
+  else if (e.key === "-" || e.key === "_") { e.preventDefault(); setZoom(zoom - 5); }
+  else if (e.key === "0") { e.preventDefault(); setZoom(100); }
+});
+
+/* ---------- API key ---------- */
+let apiKey = {}, keyAutoShown = false;
+function keyState(k) {
+  apiKey = k;
+  const b = $("kbtn"), bad = k.status === "missing" || k.status === "invalid";
+  b.classList.toggle("warn", bad || !!k.expiring);
+  b.title = k.status === "missing" ? "Set the Tailscale API key"
+    : k.status === "invalid" ? "API key rejected: enter a new one"
+    : "Tailscale API key" + (k.id ? ` (${k.id})` : "") + (k.expires ? `, expires ${new Date(k.expires).toLocaleDateString()}` : "");
+  // Ask by itself once per page load when there's no usable key; after Cancel it stays
+  // reachable from the key button in the header.
+  if (bad && !keyAutoShown && !$("keydlg").open) { keyAutoShown = true; openKeyDialog(); }
+}
+function openKeyDialog() {
+  const k = apiKey;
+  $("k-why").textContent = k.status === "missing"
+    ? "The dashboard needs a Tailscale API access token to read your device list."
+    : k.status === "invalid"
+      ? "Tailscale rejected the current key. It has probably expired (they last at most 90 days) or been revoked. Enter a new one."
+      : `Replace the current key${k.id ? " (" + k.id + ")" : ""}${k.expires ? ", which expires " + new Date(k.expires).toLocaleDateString() : ""}.`;
+  $("k-in").value = "";
+  $("k-err").hidden = true;
+  $("k-save").disabled = false;
+  $("keydlg").showModal();
+  $("k-in").focus();
+}
+$("kbtn").onclick = openKeyDialog;
+$("k-cancel").onclick = () => $("keydlg").close();
+$("keydlg").onclose = () => { $("k-in").value = ""; };  // don't leave the key sitting in the page
+$("k-form").onsubmit = async e => {
+  e.preventDefault();
+  const key = $("k-in").value.trim(), err = $("k-err");
+  err.hidden = true;
+  if (!key) { err.textContent = "Paste the API access token first."; err.hidden = false; return; }
+  $("k-save").disabled = true;
+  $("k-save").textContent = "Checking…";
+  try {
+    const r = await fetch("/api/key", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({key})});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Server error ${r.status}`);
+    $("keydlg").close();
+    toast("API key saved. Syncing…");
+    setTimeout(load, 3000);
+  } catch (ex) {
+    err.textContent = ex.message === "Failed to fetch" ? "Dashboard backend unreachable." : ex.message;
+    err.hidden = false;
+  } finally {
+    $("k-save").disabled = false;
+    $("k-save").textContent = "Check and save";
+  }
+};
+
+/* ---------- theme ---------- */
+const THEMES = ["auto", "light", "dark"];
+const THEME_ICONS = {
+  auto:  '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+  light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  dark:  '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+};
+let theme = "auto";
+try { const t = localStorage.getItem("theme"); if (THEMES.includes(t)) theme = t; } catch (e) {}
+function setTheme(t, save) {
+  theme = t;
+  if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  $("thbtn").innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${THEME_ICONS[t]}</svg>`;
+  const label = t === "auto" ? "Theme: auto (follows your system) — click to change" : `Theme: ${t} — click to change`;
+  $("thbtn").title = label; $("thbtn").setAttribute("aria-label", label);
+  if (save) { try { localStorage.setItem("theme", t); } catch (e) {} }
+}
+$("thbtn").onclick = () => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length], true);
+
+/* ---------- views, layout, wiring ---------- */
+function showView(v) {
+  view = v;
+  data = v === "active" ? allActive : allArchived;
+  $("t-active").className = v === "active" ? "on" : "";
+  $("t-arch").className = v === "archived" ? "on" : "";
+  $("t-time").className = v === "timeline" ? "on" : "";
+  document.querySelectorAll(".lv").forEach(el => { el.hidden = v === "timeline"; });
+  $("tlctl").hidden = v !== "timeline";
+  $("pwrap").hidden = v !== "archived";
+  if (v !== "archived") closePops(null);
+  if (v === "active" && sort.key === "archived") sort = {key: "name", dir: "asc"};
+  syncSortControls();
+}
+function setLayout(l, save) {
+  layout = l;
+  if (save) { try { localStorage.setItem("layoutPref", l); } catch (e) {} }
+  $("v-table").className = l === "table" ? "on" : "";
+  $("v-cards").className = l === "cards" ? "on" : "";
+  render();
+}
+$("v-table").onclick = () => setLayout("table", true);
+$("v-cards").onclick = () => setLayout("cards", true);
+$("t-active").onclick = () => { showView("active"); render(); load(); };
+$("t-arch").onclick = () => { showView("archived"); render(); load(); };
+$("t-time").onclick = () => { showView("timeline"); render(); loadTimeline("fresh"); };
+function openTimelineFor(id, name) {
+  showView("timeline");
+  tlFilterDevice(id, name);
+  renderSummary();
+}
+$("dns").ontoggle = () => { try { localStorage.setItem("dnsOpen", $("dns").open ? "1" : "0"); } catch (e) {} };
+$("g").onchange = () => { try { localStorage.setItem("group", $("g").value); } catch (e) {} render(); };
+$("q").oninput = $("f").onchange = $("ft").onchange = $("fe").onchange = render;
+try { if (localStorage.getItem("dnsOpen") === "0") $("dns").open = false; } catch (e) {}
+try { $("g").value = ["type", "type-az", "type-count"].includes(localStorage.getItem("group")) ? localStorage.getItem("group") : ""; } catch (e) {}
+if (typeof CSS !== "undefined" && CSS.supports && !CSS.supports("zoom", "1")) $("zwrap").hidden = true;
+renderColCtl();
+syncSortControls();
+setTheme(theme, false);
+setZoom(zoom);
+setLayout(layout, false); load(); setInterval(load, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# secrets and local data: never commit
+api_key
+api_key.tmp
+*.env
+.env
+dashboard.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+.venv/
+__pycache__/
+*.pyc
