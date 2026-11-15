@@ -1,4 +1,6 @@
-# Tailnet Dashboard
+# <img src="static/icon.svg" width="36" height="36" alt="" align="top"> Tailnet Dashboard
+
+> **Note:** This project is 100% vibe coded with [Claude](https://claude.com/claude-code).
 
 A small self-hosted dashboard for your Tailscale network. It polls the Tailscale API, so new devices
 appear and removed ones are archived automatically.
