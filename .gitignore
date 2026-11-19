@@ -1,4 +1,7 @@
 # secrets and local data: never commit
+# api_key: the token the dashboard saves when run without Docker (python app.py)
+api_key
+api_key.tmp
 *.env
 .env
 dashboard.db
