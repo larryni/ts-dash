@@ -8,6 +8,5 @@ README.md
 api_key
 api_key.tmp
 tailscale-state
-tailscale-config
 *.env
 .env.example
