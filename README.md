@@ -153,6 +153,7 @@ All settings are environment variables.
 | `LATENCY_SAMPLE_SECONDS` | `300` | How often latency is recorded |
 | `LATENCY_RETENTION_DAYS` | `30` | How long latency history is kept |
 | `ARCHIVE_RETENTION_DAYS` | `0` | Automatically purge archived devices after this many days (`0` = never) |
+| `TRUST_PROXY` | *(off)* | `1` reads the client address and https from `X-Forwarded-*` headers. Only for a reverse proxy on the same machine that is the sole way in (the Docker sidecar sets it) |
 
 ## 5. Run it in the background (systemd user service)
 
@@ -207,6 +208,68 @@ systemctl --user restart ts-dash
 If you bind `HOST` to the tailnet IP and the service starts before Tailscale is up at boot, it
 will fail and retry every 10 seconds until the address exists. That is expected.
 
+## Docker (alternative to steps 1 to 5)
+
+The project includes a `Dockerfile` and a compose file. The default `docker-compose.yml` runs the
+dashboard with its **own Tailscale sidecar**, so it joins your tailnet as its own machine called
+`ts-dash` and is served over HTTPS at `https://ts-dash.<your-tailnet>.ts.net`. Nothing is published
+on the host, and the host itself doesn't need Tailscale.
+
+Install Docker first.
+
+**Arch:** `sudo pacman -S docker docker-compose` then `sudo systemctl enable --now docker`
+**Debian / Ubuntu:** install Docker Engine and the Compose plugin from
+<https://docs.docker.com/engine/install/> (or `sudo apt install docker.io docker-compose-v2`).
+
+Then:
+
+```sh
+cp .env.example .env
+chmod 600 .env
+$EDITOR .env          # set TS_AUTHKEY
+docker compose up -d --build
+```
+
+Open `https://ts-dash.<your-tailnet>.ts.net/` and follow the first-run steps from section 4:
+create the login straight away (until one exists, whoever opens the page first chooses it), then
+paste your API access token.
+
+- `TS_AUTHKEY` is an **auth key** (admin console, Settings, Keys, Generate auth key, starts
+  `tskey-auth-`). It registers the new `ts-dash` machine and is only used on the first start. It
+  is not the API access token, which you enter in the page. After the machine appears in the admin
+  console, delete the value from `.env`; the node then logs in from `./tailscale-state`.
+- HTTPS must be enabled for your tailnet (admin console, DNS, HTTPS Certificates). It is served by
+  `tailscale-config/serve.json`.
+- The dashboard listens on `127.0.0.1` inside the shared network, so it is reachable only through
+  Tailscale Serve. `TRUST_PROXY=1` is set so the login lockout counts each client separately and the
+  cookie is marked Secure.
+- The database, the login and the saved API key live in the `ts-dash-data` volume and survive
+  rebuilds. Keep `./tailscale-state` too, or the machine registers again as a new device.
+- Pings and :22 / :443 probes leave from the sidecar, straight over the tailnet.
+- To change a setting from the configuration table, add it under `environment:` for the `ts-dash`
+  service in `docker-compose.yml`.
+
+Everyday commands:
+
+```sh
+docker compose logs -f ts-dash        # dashboard logs (service `tailscale` for the sidecar)
+docker compose restart
+docker compose up -d --build          # after changing app.py or static/
+docker compose down                   # stop (the data volume and tailscale-state are kept)
+docker compose exec ts-dash python app.py --reset-login   # forgot the dashboard password
+```
+
+Back up the database (the volume is named `<project folder>_ts-dash-data`; see `docker volume ls`):
+
+```sh
+docker run --rm -v ts-dash_ts-dash-data:/data -v "$PWD":/backup alpine cp /data/dashboard.db /backup/
+```
+
+**No sidecar?** `docker-compose.host-ts.yml` is a simpler variant that uses the host's own
+Tailscale and publishes the dashboard on the host's tailnet IP only (`http://<host>:8080`). Use it
+with `cp .env.host-ts.example .env`, set `BIND_IP` to `tailscale ip -4`, and run
+`docker compose -f docker-compose.host-ts.yml up -d --build`. Never publish it on `0.0.0.0`.
+
 ## Updating
 
 1. Replace `app.py` and `static/index.html` with the new versions (the database is upgraded
@@ -237,6 +300,7 @@ password that was set at the time.
 | "Too many wrong attempts" | Wait the number of seconds shown, or restart the dashboard to clear the counter. |
 | Asked to create a login after updating | Expected once: versions with a login ask you to set one up on the first visit. |
 | Everything shows SSH/HTTPS closed or no ping | The host isn't on the tailnet, or a firewall blocks it. Check `tailscale status` on that machine. |
+| Docker: sidecar is "unhealthy", log says `invalid key: API key does not exist` | `TS_AUTHKEY` is empty, a placeholder or the API token. It must be an auth key (`tskey-auth-…`). Fix `.env`, then `docker compose down && rm -rf tailscale-state && docker compose up -d`. |
 | Page works but a new button gives a 404 | The old server process is still running. Restart it (see Updating). |
 | Page looks wrong colours | Some browser extensions (dark-mode or colour changers) restyle pages. Try a private window. |
 

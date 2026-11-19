@@ -1,0 +1,20 @@
+services:
+  ts-dash:
+    build: .
+    image: ts-dash:latest
+    container_name: ts-dash
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Fixed inside the container; PORT in .env only changes the published host port.
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DB_PATH: /data/dashboard.db
+    ports:
+      # Publish on the host's tailnet address only, never on the public interface.
+      - "${BIND_IP:?set BIND_IP in .env to this machine's tailnet IP (tailscale ip -4)}:${PORT:-8080}:8080"
+    volumes:
+      - ts-dash-data:/data
+
+volumes:
+  ts-dash-data:

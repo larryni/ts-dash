@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 import requests
 from flask import Flask, Response, abort, g, jsonify, redirect, request, send_from_directory
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 TAILNET = os.environ.get("TS_TAILNET", "-")   # "-" = your default tailnet
@@ -42,6 +43,12 @@ CATEGORIES = [c.strip() for c in os.environ.get(
     "CATEGORIES", "Application,Server,NAS,Desktop,Laptop,Phone,Tablet,Other").split(",") if c.strip()]
 
 app = Flask(__name__, static_folder="static")
+# Behind a reverse proxy on the same machine (e.g. `tailscale serve`, or the Docker sidecar) every
+# request arrives from 127.0.0.1. With TRUST_PROXY=1 the real client address (for the login
+# lockout) and https (for the Secure cookie) are read from the proxy's X-Forwarded-* headers.
+# Only turn this on when the proxy is the only way to reach the app, or the headers can be forged.
+if os.environ.get("TRUST_PROXY") == "1":
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 lock = threading.Lock()
 state = {"last_poll": None, "last_error": None}
 dns_cache = {}

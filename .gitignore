@@ -1,6 +1,4 @@
 # secrets and local data: never commit
-api_key
-api_key.tmp
 *.env
 .env
 dashboard.db
@@ -13,3 +11,6 @@ dashboard.db
 .venv/
 __pycache__/
 *.pyc
+
+# Docker
+tailscale-state/

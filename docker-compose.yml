@@ -1,0 +1,58 @@
+# ts-dash with its own Tailscale sidecar: it joins the tailnet as a machine called "ts-dash"
+# and is served over HTTPS at https://ts-dash.<your-tailnet>.ts.net (same pattern as the
+# Karakeep and Navidrome stacks). No ports are published on the host.
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: ts-dash-tailscale
+    hostname: ts-dash
+    environment:
+      # Only needed on the first start; the node then authenticates from ./tailscale-state.
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - ./tailscale-state:/var/lib/tailscale
+      - ./tailscale-config:/config
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "tailscale", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  ts-dash:
+    build: .
+    image: ts-dash:latest
+    container_name: ts-dash
+    # The dashboard uses the sidecar's network, so its pings and :22/:443 probes go straight
+    # out over the tailnet.
+    network_mode: service:tailscale
+    depends_on:
+      tailscale:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      # Optional: the API token can be entered in the web page instead (saved to /data/api_key).
+      TS_API_KEY: ${TS_API_KEY:-}
+      TS_TAILNET: ${TS_TAILNET:--}
+      POLL_SECONDS: ${POLL_SECONDS:-60}
+      PROBE_PORTS: ${PROBE_PORTS:-1}
+      ARCHIVE_RETENTION_DAYS: ${ARCHIVE_RETENTION_DAYS:-0}
+      # Listen on localhost inside the shared network; Tailscale Serve is the only way in.
+      HOST: 127.0.0.1
+      # Tailscale Serve is the only way in, so its forwarded client address/https can be trusted.
+      TRUST_PROXY: "1"
+      PORT: "8080"
+      DB_PATH: /data/dashboard.db
+    volumes:
+      - ts-dash-data:/data
+
+volumes:
+  ts-dash-data:
