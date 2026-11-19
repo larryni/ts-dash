@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+# Shown on the ghcr.io package page; "source" links the image to the GitHub repo.
+LABEL org.opencontainers.image.title="tailnetDash" \
+      org.opencontainers.image.description="Self-hosted dashboard for a Tailscale network: devices, uptime, latency, timeline" \
+      org.opencontainers.image.source="https://github.com/larryni/ts-dash" \
+      org.opencontainers.image.url="https://github.com/larryni/ts-dash" \
+      org.opencontainers.image.licenses="MIT"
+
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DB_PATH=/data/dashboard.db \
@@ -10,7 +17,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY app.py .
+COPY app.py LICENSE ./
 COPY static ./static
 
 # Run as an unprivileged user; /data holds the SQLite database (mount a volume here).
