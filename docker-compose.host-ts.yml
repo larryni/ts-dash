@@ -1,7 +1,10 @@
+# tailnetDash on a host that already runs Tailscale: published only on the host's tailnet
+# address. Use with a .env made from .env.host-ts.example:
+#   docker compose -f docker-compose.host-ts.yml up -d
 services:
   ts-dash:
-    build: .
-    image: ts-dash:latest
+    # Published image; TS_DASH_TAG picks the version ("1" follows 1.x releases).
+    image: ghcr.io/larryni/ts-dash:${TS_DASH_TAG:-1}
     container_name: ts-dash
     restart: unless-stopped
     env_file: .env
